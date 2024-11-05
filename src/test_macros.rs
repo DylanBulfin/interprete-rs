@@ -64,7 +64,7 @@ macro_rules! arr {
 /// use interprete_rs::map;
 ///
 /// let map = map!{(1, 2), (2, 3), (4, 3), (5, 2)};
-/// 
+///
 /// let mut keys: Vec<_> = map.keys().collect();
 /// let mut vals: Vec<_> = map.values().collect();
 /// keys.sort();
@@ -91,6 +91,23 @@ macro_rules! map {
             map
         }
     };
+}
+
+#[macro_export]
+macro_rules! list_comp {
+    [ $func:expr; $lst:expr => $var:ident $( ;$cond:expr )? ] => {
+        {
+            let mut vec = Vec::new();
+
+            for $var in $lst.iter() {
+                $(if !$cond {continue;})?
+
+                vec.push($func);
+            }
+
+            vec
+        }
+    }
 }
 
 #[cfg(test)]
@@ -131,5 +148,14 @@ mod tests {
         expected.insert(5, 4);
 
         assert_eq!(map, expected);
+    }
+
+    #[test]
+    fn list_comp() {
+        let comp1 = list_comp!(a * 2; [1, 2, 3] => a);
+        let comp2 = list_comp!(a.is_ascii(); ["ABC", "BCD", "😀"] => a);
+
+        assert_eq!(comp1, vec![2, 4, 6]);
+        assert_eq!(comp2, vec![true, true, false]);
     }
 }
