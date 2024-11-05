@@ -1,9 +1,7 @@
 //! Some macros to make testing easier (and to practice using macros)
 
-/// This is a macro that makes it more convenient to create arrays. The format is the base array
-/// args (default value and size) followed by a variable number of arguments, which can be either a
-/// single element or an element with an associated count. The examples below will hopefully make
-/// things clear.
+/// This is a macro that makes it more convenient to create arrays. The format is hard to explain
+/// but I hope that the examples will help to clarify
 ///
 /// # Examples
 /// ```
@@ -19,10 +17,25 @@
 /// let arr2 = arr!([5; 16], (10; 5), (-1; 10));
 /// assert_eq!(arr2.len(), 16);
 /// assert_eq!(arr2, [10, 10, 10, 10, 10, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, 5]);
+///
+/// // The above both used the single element/range syntax, the following use the alternate syntax
+/// // which acceps a list of iterators. Note the semicolon after the `[0; 100]` instead of a comma
+/// // as in previous examples
+/// let arr3 = arr!([0; 100]; (1..50), [1, 2]);
+/// assert_eq!(arr3.len(), 100);
+///
+/// let mut expected3 = [0; 100];
+/// for i in 0..49 {
+///     expected3[i] = i + 1;
+/// }
+/// expected3[49] = 1;
+/// expected3[50] = 2;
+///
+/// assert_eq!(arr3, expected3);
 /// ```
 #[macro_export]
 macro_rules! arr {
-    [ [$default:expr; $size:literal], $( ( $elem:expr $( ;$n:expr )?) ),+  ] => {
+    ( [$default:expr; $size:literal], $( ( $elem:expr $( ;$n:expr )?) ),* ) => {
         {
             let mut sum = 0;
             let mut vec = Vec::new();
@@ -38,7 +51,33 @@ macro_rules! arr {
                         vec.push($elem);
                     }
                 }
-            )+
+            )*
+
+            if sum > $size {
+                panic!("Specified size not large enough to hold all data");
+            }
+
+            let mut arr = [$default; $size];
+
+            for (i, v) in vec.into_iter().enumerate() {
+                arr[i] = v;
+            }
+
+            arr
+        }
+    };
+    ( [$default:expr; $size:literal]; $( $iter:expr ),* ) => {
+        {
+            let mut sum = 0;
+            let mut vec = Vec::new();
+
+            $(
+                #[allow(for_loops_over_fallibles)]
+                for v in $iter {
+                    sum += 1;
+                    vec.push(v);
+                }
+            )*
 
             if sum > $size {
                 panic!("Specified size not large enough to hold all data");
@@ -133,7 +172,7 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn arr_macro() {
+    fn arr_macro_ranges() {
         let arr = arr!([0; 30000], (1), (2), (3; 10), (7));
 
         let mut expected = [0; 30000];
@@ -141,6 +180,24 @@ mod tests {
         expected[1] = 2;
         (2..12).for_each(|i| expected[i] = 3);
         expected[12] = 7;
+
+        assert_eq!(arr, expected);
+    }
+
+    #[test]
+    fn arr_macro_iters() {
+        // Note the semicolon following the [0; 100]
+        let arr = arr!([0; 100]; 1..50, [1, 2], Some(4));
+
+        let mut expected = [0u32; 100];
+        expected
+            .iter_mut()
+            .take(49)
+            .enumerate()
+            .for_each(|(i, v)| *v = i as u32 + 1);
+        expected[49] = 1;
+        expected[50] = 2;
+        expected[51] = 4;
 
         assert_eq!(arr, expected);
     }
