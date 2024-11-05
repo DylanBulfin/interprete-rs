@@ -93,13 +93,29 @@ macro_rules! map {
     };
 }
 
+/// Haskell-inspired list comprehension
+///
+/// # Examples
+/// ```
+/// use interprete_rs::list_comp;
+///
+/// let l1 = list_comp!(a * 2; [1, 2, 3] => a);
+/// assert_eq!(l1, [2, 4, 6]);
+///
+/// let l2 = list_comp!(a.to_ascii_lowercase(); ["ABC", "BCD", "ADE😵"] => a; a.is_ascii());
+/// assert_eq!(l2, ["abc", "bcd"]);
+///
+/// let l3 = list_comp!(a * 2; 0..1000 => a);
+/// let l4 = list_comp!(a; 0..2000 => a; a % 2 == 0);
+/// assert_eq!(l3, l4);
+/// ```
 #[macro_export]
 macro_rules! list_comp {
     [ $func:expr; $lst:expr => $var:ident $( ;$cond:expr )? ] => {
         {
             let mut vec = Vec::new();
 
-            for $var in $lst.iter() {
+            for $var in $lst {
                 $(if !$cond {continue;})?
 
                 vec.push($func);
@@ -154,8 +170,16 @@ mod tests {
     fn list_comp() {
         let comp1 = list_comp!(a * 2; [1, 2, 3] => a);
         let comp2 = list_comp!(a.is_ascii(); ["ABC", "BCD", "😀"] => a);
+        let comp3 = list_comp!(a + 5; [1, 2, 3, 4, 5] => a; a < 4);
+        let comp4 = list_comp!(a / 10; 0..100 => a; a % 2 == 0);
 
         assert_eq!(comp1, vec![2, 4, 6]);
         assert_eq!(comp2, vec![true, true, false]);
+        assert_eq!(comp3, vec![6, 7, 8]);
+        assert_eq!(comp4.len(), 50);
+        assert_eq!(
+            comp4,
+            arr!([0; 50], (0; 5), (1; 5), (2; 5), (3; 5), (4; 5), (5; 5), (6; 5), (7; 5), (8; 5), (9; 5))
+        );
     }
 }
