@@ -94,25 +94,87 @@ macro_rules! arr {
     }
 }
 
+// Helper macros below
+// macro_rules! finalize {
+//     () => {
+//         if sum < cnt {
+//             panic!("Unable to fit all specified value in array of specified length");
+//         }
+
+//         vec.into_iter().enumerate().for_each(|(i, v)| arr[i] = v);
+
+//         arr
+//     };
+// }
+
+// macro_rules! add_single {
+//     ($elem:expr) => {
+//         sum += 1;
+//         vec.push($elem);
+//     };
+// }
+
+// macro_rules! add_range {
+//     ($elem:expr, $cnt:expr) => {
+//         sum += $cnt;
+//         vec.append(vec![$elem; $cnt]);
+//     };
+// }
+
 /// This is an attempt at a nicer-looking `arr` macro that uses recursion. Macro recursion is not
 /// optimized, so this may increase compile time vs. the other macro. This is specifically set up
 /// to support literals and ranges. E.g. `arr_tt!([default; cnt], 1, (4; 3), 5)`.
 macro_rules! arr_tt {
     () => {};
-    ([ $default:expr; $cnt:literal ], $( $tail:tt)* ) => {
+    ( [ $default:expr; $cnt:literal ], $( $tail:tt )* ) => {
         {
-            let mut sum = 0;
             let mut vec = Vec::new();
+            let mut sum = 0;
+            let mut arr = [$default; $cnt];
 
-            arr_tt($($tail)*)
+            arr_helper!([vec, sum] => $($tail)*);
+
+            if sum >= $cnt {
+                panic!("Unable to fit specified values in array of specified size");
+            }
+
+            vec.into_iter().enumerate().for_each(|(i, v)| arr[i] = v);
+
+            arr
+         }
+    };
+}
+
+macro_rules! add_one {
+    ( [$vec: ident, $sum:ident], $elem:expr) => {
+        $sum += 1;
+        $vec.push($elem);
+    };
+}
+
+macro_rules! add_block {
+    ( [$vec: ident, $sum:ident], $elem:expr, $cnt:expr) => {
+        for i in 0..$cnt {
+            add_one!( [$vec, $sum], $elem );
         }
     };
-    ( $( $elem:expr ),+ ,$( $tail:tt )*) => {
-        sum += 1;
-        vec.push($elem);
-        
-        arr_tt!($($tail)*)
-    }
+}
+
+macro_rules! arr_helper {
+    ( [$vec:ident, $sum:ident] => ($elem:expr; $cnt:expr)) => {
+        $(add_block!([$vec, $sum], $elem, $cnt);)?
+    };
+    ( [$vec:ident, $sum:ident] => ($elem:expr; $cnt:expr), $( $tail:tt )*) => {
+        add_block!([$vec, $sum], $elem, $cnt);
+        arr_helper!([$vec, $sum] => $($tail)*);
+    };
+    ( [$vec:ident, $sum:ident] => $( $elem:expr )?) => {
+        $(add_one!([$vec, $sum], $elem);)?
+    };
+    ( [$vec:ident, $sum:ident] => $elem:expr, $($tail:tt)*) => {
+        add_one!([$vec, $sum], $elem);
+        arr_helper!([$vec, $sum] => $($tail)*);
+    };
 }
 
 /// This is a macro to allow defining HashMaps in a similar way to the `vec!` macro. I use
@@ -193,6 +255,45 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
+    fn arr_tt() {
+        let arr = arr_tt!([0; 30000], 1, 2, (3; 10), 7);
+        
+        let mut expected = [0; 30000];
+        expected[0] = 1;
+        expected[1] = 2;
+        (2..12).for_each(|i| expected[i] = 3);
+        expected[12] = 7;
+        
+        for i in 0..30000 {
+            if expected[i] != arr[i] {
+                panic!("Mismatch at index {}, {} vs {}", i, expected[i], arr[i]);
+            }
+        }
+
+        assert_eq!(arr, expected);
+    }
+    
+    #[test]
+    fn tt_test() {
+        let mut vec = Vec::new();
+        let mut sum = 0;
+        let mut arr = [0; 30000];
+        sum += 1;
+        vec.push(1);
+        sum += 1;
+        vec.push(2);
+        sum += 10;
+        vec.append(&mut vec![3; 10]);
+        sum += 1;
+        vec.push(7);
+        if sum >= 30000 {
+            panic!("abc")
+        }
+        vec.into_iter().enumerate().for_each(|(i, v)| arr[i] = v);
+        arr;
+    }
+
+    #[test]
     fn arr_macro_ranges() {
         let arr = arr!([0; 30000], (1), (2), (3; 10), (7));
 
@@ -259,5 +360,8 @@ mod tests {
             comp4,
             arr!([0; 50], (0; 5), (1; 5), (2; 5), (3; 5), (4; 5), (5; 5), (6; 5), (7; 5), (8; 5), (9; 5))
         );
+        
+        // let mut a = vec![1,2,3];
+        // a.append(vec![1,5]);
     }
 }
