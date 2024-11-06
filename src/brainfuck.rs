@@ -175,7 +175,7 @@ impl BrainfuckProgram<Stdin, Stdout> {
 
 #[cfg(test)]
 mod tests {
-    use std::{array, io::Cursor};
+    use std::{array, io::Cursor, iter::repeat};
 
     use crate::arr;
 
@@ -321,15 +321,7 @@ mod tests {
         let reader = Cursor::new(&mut stdin_buf);
         let writer = Cursor::new(&mut stdout_buf);
 
-        let mut input = String::new();
-
-        for _ in 0..100 {
-            input += ",>";
-        }
-
-        for _ in 0..100 {
-            input += "<.";
-        }
+        let input = ",>".repeat(100) + "<.".repeat(100).as_str();
 
         let prog = BrainfuckProgram::new_full(input, writer, reader);
         let output = prog.interpret_naive();
@@ -354,5 +346,56 @@ mod tests {
         let output = prog.interpret_naive();
 
         assert_eq!(output, [0; 30000]);
+        assert_eq!(stdout_buf, arr!([0u8; 1000]; 2..=255));
+    }
+
+    #[test]
+    fn control_flow_extra() {
+        // This program first enters the `[+.]` loop, during which it will print every number
+        // from 2 to 255, then 0. It will then enter the `[-.]` loop, during which it will print
+        // every number from 254 down to 0. It will then read user input and, if it is non-zero,
+        // start over. This time will go the same way except the `[+.]` loop will print starting at
+        // one more than the byte it reads from input instead of 2. It will continue in this
+        // fashion until it recieves 0 as input, at which time it will increment the current memory
+        // location and exit.
+        let input = String::from("+[[+.]-[-.],]+");
+
+        let stdin_buf = [1, 2, 3, 0];
+        let mut stdout_buf = [0; 10000];
+
+        let reader = Cursor::new(&stdin_buf[..]);
+        let writer = Cursor::new(&mut stdout_buf[..]);
+
+        let prog = BrainfuckProgram::new_full(input, writer, reader);
+        let output = prog.interpret_naive();
+
+        assert_eq!(output, arr!([0; 30000], (1)));
+
+        let exp = arr!(
+            [0; 10000];
+            // In the first inner loop
+            2..=255,
+            [0],
+            // In the second inner loop
+            (0..255).rev(),
+            // Here it reads 1 from user input then starts over, immediately entering loop 1
+            2..=255,
+            [0],
+            // In the second loop again
+            (0..255).rev(),
+            // Here it reads 2 from user input then starts over, immediately entering loop 1
+            3..=255,
+            [0],
+            // In the second loop again
+            (0..255).rev(),
+            // Here it reads 3 from user input then starts over, immediately entering loop 1
+            4..=255,
+            [0],
+            // In the second loop again
+            (0..255).rev()
+            // Here it reads 0 from user input and exits, never to output again
+        );
+
+        assert_eq!(stdout_buf, exp);
     }
 }
