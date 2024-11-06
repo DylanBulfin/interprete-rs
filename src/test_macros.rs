@@ -94,6 +94,27 @@ macro_rules! arr {
     }
 }
 
+/// This is an attempt at a nicer-looking `arr` macro that uses recursion. Macro recursion is not
+/// optimized, so this may increase compile time vs. the other macro. This is specifically set up
+/// to support literals and ranges. E.g. `arr_tt!([default; cnt], 1, (4; 3), 5)`.
+macro_rules! arr_tt {
+    () => {};
+    ([ $default:expr; $cnt:literal ], $( $tail:tt)* ) => {
+        {
+            let mut sum = 0;
+            let mut vec = Vec::new();
+
+            arr_tt($($tail)*)
+        }
+    };
+    ( $( $elem:expr ),+ ,$( $tail:tt )*) => {
+        sum += 1;
+        vec.push($elem);
+        
+        arr_tt!($($tail)*)
+    }
+}
+
 /// This is a macro to allow defining HashMaps in a similar way to the `vec!` macro. I use
 /// python-ish syntax but with comma-separated pairs since colons can't be used as literals in a
 /// rust macro pattern definition
