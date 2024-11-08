@@ -2,6 +2,25 @@
 
 use std::cmp::Ordering;
 
+//const MACROINSTRUCTION_CHARS: [char; 22] = [
+//    '(', ')', ';', '*', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'p', 'm', 'f', 'b', 'i',
+//    'o', '{', '}',
+//];
+
+fn to_alt_opcode(c: char) -> char {
+    match c {
+        '+' => 'p',
+        '-' => 'm',
+        '<' => 'b',
+        '>' => 'f',
+        '.' => 'o',
+        ',' => 'i',
+        '[' => '{',
+        ']' => '}',
+        _ => panic!("Unexpected char: {}", c),
+    }
+}
+
 /// Macro to allow simpler implementation of full pair reductions.
 ///
 /// # Examples
@@ -115,14 +134,58 @@ pub fn safe_dp_reduction(input: Vec<char>) -> Vec<char> {
 }
 
 /// This optimization reduces long strings of identical instructions to a single macro-instruction.
-/// For example, if it recieves the input `>>>>>` it would reduce to `(5*>)`
+/// For example, if it recieves the input `>>>>>` it would reduce to `(5*f)`
 pub fn compress_seq(input: Vec<char>) -> Vec<char> {
+    let compressable = ['+', '-', '<', '>'];
 
+    let mut res = Vec::new();
+
+    let mut curr_char = 0 as char;
+    let mut count = 0;
+
+    let handle_seq = |cc: char, cnt: u32, r: &mut Vec<char>| match cnt.cmp(&1) {
+        Ordering::Less => (),
+        Ordering::Equal => r.push(cc),
+        Ordering::Greater => {
+            r.append(&mut format!("({}*{})", cnt, to_alt_opcode(cc)).chars().collect())
+        }
+    };
+
+    for c in input {
+        if compressable.contains(&c) && c == curr_char {
+            count += 1;
+        } else {
+            handle_seq(curr_char, count, &mut res);
+
+            curr_char = c;
+            count = 1;
+        }
+    }
+
+    handle_seq(curr_char, count, &mut res);
+
+    res
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    macro_rules! mk_test {
+        ([$($input:expr)*], [$($output:expr)*], $func:ident) => {
+            $(
+                {
+                    let input = $input;
+                    let output = $output;
+
+                    assert_eq!(
+                        $func(input.chars().collect()),
+                        output.chars().collect::<Vec<_>>()
+                    );
+                }
+            )*
+        };
+    }
 
     #[test]
     fn math_reduction_test() {
@@ -210,6 +273,36 @@ mod tests {
         );
         assert_eq!(
             safe_dp_reduction(input4.chars().collect()),
+            output4.chars().collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn compress_seq_test() {
+        let input1 = "++++++++<++++";
+        let input2 = "<<<<<<<->>>>>>";
+        let input3 = "(13;2)<<<<<<<<<<<<";
+        let input4 = "[(13;2)<<<<<]+<<<<<<<";
+
+        let output1 = "(8*p)<(4*p)";
+        let output2 = "(7*b)-(6*f)";
+        let output3 = "(13;2)(12*b)";
+        let output4 = "[(13;2)(5*b)]+(7*b)";
+
+        assert_eq!(
+            compress_seq(input1.chars().collect()),
+            output1.chars().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            compress_seq(input2.chars().collect()),
+            output2.chars().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            compress_seq(input3.chars().collect()),
+            output3.chars().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            compress_seq(input4.chars().collect()),
             output4.chars().collect::<Vec<_>>()
         );
     }
