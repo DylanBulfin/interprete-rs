@@ -219,12 +219,6 @@ though.
 <Args> -> <Value> | <Value> <Args>
 ```
 
-Prog ::= ( Expr )
-
-Expr ::= Value | FuncCall
-
-Value ::= ListVal | StringVal | TupleVal | ScalarVal | UnitVal
-
 ## Parser Edge Cases
 - With my current handling of number literals something like `12u13` would be considered two separate numeric literals
 `12u` and `13`
