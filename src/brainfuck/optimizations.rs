@@ -185,6 +185,19 @@ mod tests {
                 }
             )*
         };
+        ($(($input:expr, $output:expr))*, $func:ident) => {
+            $(
+                {
+                    let input = $input;
+                    let output = $output;
+
+                    assert_eq!(
+                        $func(input.chars().collect()),
+                        output.chars().collect::<Vec<_>>()
+                    );
+                }
+            )*
+        }
     }
 
     #[test]
