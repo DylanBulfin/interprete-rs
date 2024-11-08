@@ -1,4 +1,5 @@
 pub mod brainfuck;
+pub mod blisp;
 pub mod test_macros;
 pub mod error;
 

@@ -68,9 +68,10 @@ same type and they can't be coerced to the same type, the list declaration is in
 - `[1, 1c]` is a compilation error because there is no implicit coercion from int literal to char (may change)
 
 #### (2-)Tuples
-Tuples are enclosed by `()` always, and consist of 2 comma-separated values, potentially of different types
-- `(1, 'a')` is `tuple<int, char>`
-- `(true, [1, 2, 3u])` is `tuple<bool, list<uint>>`
+I realized it would create an annoying edge case to have non-statement objects enclosed by parentheses, so for now
+tuples can only be created with the tuple function: `(, <item1>, <item2)`
+- `(, 1 'a')` is `tuple<int, char>`
+- `(, true [1, 2, 3u])` is `tuple<bool, list<uint>>`
 
 ### Type Coercion 
 To allow for coercion we must define a couple abstract types and a hierarchy. To start we should look at which type 
@@ -105,12 +106,12 @@ same type would be valid (and a few others).
     - `(* T T) -> T` is defined for `T: int | uint | float`
 
 ### I/O
-- `.` or `write`
-    - `(. "ABC")` and `(print "ABC")` both print "ABC" to stdout and return "ABC"
-    - `(. T) -> T` is defined for `T: string`
-- `,` or `read`
-    - `(,)` and `(read)` both read from stdin and return the value as `string`
-    - `(,) -> T` is defined for `T: string`
+- `write`
+    - `(print "ABC")` prints "ABC" to stdout and returns it for convenience
+    - `(print T) -> T` is defined for `T: string`
+- `read`
+    - `(read x)` reads a line from stdin and stores it in variable `x`, returning value
+    - `(read T) -> U` is defined for `T: string | (), U: string`, e.g. you can use `(read ())` to avoid providing a var
 
 ### Control Flow
 - `?` or `if`
@@ -145,3 +146,85 @@ same type would be valid (and a few others).
 - `split`
     - `(split 3 [1, 2, 3, 4, 5]) = ([1, 2, 3], [4, 5])`
     - `(split T list<U>) -> (list<U>, list<U>)` is defined for `T: uint, U: any`
+
+### Variable management
+- `def`
+    - `(def x 12)` defines a new variable `x` with value `12` and type `int`
+    - `(def <ident> T) -> ()` is defined for `T: any`
+    - If you use a numeric literal the type will be set on the variable's definition. E.g. if you define `x` via 
+    `(def x 12)` and then create a list like `[1u, x]` it will throw a compiler error. This may change in the future.
+    You can get around this using the numeric prefix literals.
+- `init`
+    - `(init x int)` defines a new uninitialized variable with type `int`
+    - `(init <ident> <type>) -> ()` is defined for any type and available identifier
+- `set`
+    - `(set x 12)` sets the value of existing variable `x` to 12 (coercing if necessary)
+    - `(set x T) -> ()` is defined for `T = type(x)` (more or less)
+
+### Convenience
+- `tostring` converts any type to a default string representation
+- `eval` evaluates an expression and throws the value away (specifically returns `()`)
+    - Useful for putting multiple expressions in sequence, e.g. a program could look like
+    ```
+    ([
+        (def x 12u)
+        (set x (+ x 1))
+        (eval (write (tostring x)))
+    ])
+    ```
+    Without `eval` this would throw a type error trying to match `()` with `string`
+
+## Grammar
+I'm writing this without doing a refresher on grammars so it may be wrong. Should function as a jumping off point
+though.
+
+```
+<Prog> -> (<Expr>)
+
+<Expr> -> <Value> | <FuncCall>
+
+<Value> -> <ListVal> | <StringVal> | <TupleVal> | <ScalarVal> | <UnitVal>
+
+<ListVal> -> [<ListMembers>]
+<ListMembers> -> <Value> | <Value> <ListMembers>
+
+<StringVal> -> "" | "<StringMembers>"
+<StringMembers> -> <CharLiteralRaw> | <CharLiteral><StringMembers>
+
+<TupleVal> -> (<Value>, <Value>)
+
+<ScalarVal> -> <Ident> | <CharLiteral> | <NumLiteral>
+
+<CharLiteral> -> '<CharLiteralRaw>'
+<CharLiteralRaw> -> a | b | ...
+
+<NumLiteral> -> <FloatLiteral> | <IntLiteral>
+
+<FloatLiteral> -> -<UnsignedFloatLiteral> | <UnsignedFloatLiteral>
+<UnsignedFloatLiteral> -> <FloatSegment>. | <FloatSegment>.<FloatSegment>
+<FloatSegment> -> <Digit> | <Digit><FloatSegment>
+
+<IntLiteral> -> <IntLiteralBody> | <IntLiteralBody><IntTypeSuffix>
+<IntLiteralBody> -> -<UnsignedIntLiteral> | <UnsignedIntLiteral>
+<UnsignedIntLiteral> -> <Digit> | <Digit><UnsignedIntLiteral>
+<IntTypeSuffix> -> c | u | f
+
+<UnitVal> -> ()
+
+<Ident> -> <Symbol> | <Alphabetic><IdentTail>
+<IdentTail> -> <Alphanumeric> | <Alphanumeric><IdentTail>
+
+// May need to disallow no-arg functions to avoid parsing ambiguity
+<FuncCall> -> (<Ident> <Args>)
+<Args> -> <Value> | <Value> <Args>
+```
+
+Prog ::= ( Expr )
+
+Expr ::= Value | FuncCall
+
+Value ::= ListVal | StringVal | TupleVal | ScalarVal | UnitVal
+
+## Parser Edge Cases
+- With my current handling of number literals something like `12u13` would be considered two separate numeric literals
+`12u` and `13`
