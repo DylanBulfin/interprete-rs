@@ -1,3 +1,5 @@
+pub mod optimizations;
+
 use crate::error::{InterpretError, InterpreteResult};
 use std::{
     collections::HashMap,
