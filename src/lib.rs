@@ -1,7 +1,6 @@
 pub mod brainfuck;
 pub mod test_macros;
-
-
+pub mod error;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

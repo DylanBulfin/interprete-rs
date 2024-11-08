@@ -1,3 +1,4 @@
+use crate::error::{InterpretError, InterpreteResult};
 use std::{
     collections::HashMap,
     io::{stdin, stdout, Read, Stdin, Stdout, Write},
@@ -29,7 +30,7 @@ where
     R: Read,
 {
     /// Create a new BrainfuckProgram, specifying both the reader and the writer.
-    pub fn new_full(input: String, writer: W, reader: R) -> Self {
+    pub fn new_full(input: String, writer: W, reader: R) -> InterpreteResult<Self> {
         let mut code = Vec::new();
         let mut stack = Vec::new();
         let mut loops = HashMap::new();
@@ -43,32 +44,31 @@ where
 
             if c == '[' {
                 stack.push(i);
-            }
-            if c == ']' {
+            } else if c == ']' {
                 let matching = stack
                     .pop()
-                    .expect("Mismatch in brackets, check that each [ has a matching ]");
+                    .ok_or("Detected mismatched brackets, too many ]")?;
                 loops.insert(matching, i);
                 loops.insert(i, matching);
             }
         }
 
         if !stack.is_empty() {
-            panic!("Mismatch in brackets, check that each [ has a matching ]")
-        }
-
-        Self {
-            code,
-            loops,
-            writer,
-            reader,
-            mem: [0; 30000],
-            ip: 0,
-            dp: 0,
+            Err("Detected mismatched brackets, too many [".into())
+        } else {
+            Ok(Self {
+                code,
+                loops,
+                writer,
+                reader,
+                mem: [0; 30000],
+                ip: 0,
+                dp: 0,
+            })
         }
     }
 
-    pub fn interpret_naive(mut self) -> [u8; 30000] {
+    pub fn interpret_naive(mut self) -> InterpreteResult<[u8; 30000]> {
         loop {
             if self.ip >= self.code.len() {
                 // Reached end of selfram
@@ -79,42 +79,38 @@ where
                     self.dp = self
                         .dp
                         .checked_sub(1)
-                        .expect("Data pointer is 0, cannot decrement")
+                        .ok_or("Data pointer is 0, cannot decrement")?
                 }
                 '>' => {
                     if self.dp < 29999 {
                         self.dp += 1
                     } else {
-                        panic!("Data pointer is 29999, cannot increment")
+                        return Err("Data pointer is 29999, cannot increment".into());
                     }
                 }
                 '+' => self.mem[self.dp] = self.mem[self.dp].wrapping_add(1),
                 '-' => self.mem[self.dp] = self.mem[self.dp].wrapping_sub(1),
                 '.' => {
-                    let cnt = self
-                        .writer
-                        .write(&self.mem[self.dp..self.dp + 1])
-                        .expect("Unable to output data to configured writer");
+                    let cnt = self.writer.write(&self.mem[self.dp..self.dp + 1])?;
 
                     if cnt != 1 {
-                        panic!(
+                        return Err(format!(
                             "Read {} bytes from configured reader, expected exactly 1",
                             cnt
-                        );
+                        )
+                        .into());
                     }
                 }
                 ',' => {
                     let mut buf = [0u8];
-                    let cnt = self
-                        .reader
-                        .read(&mut buf)
-                        .expect("Unable to read from configured reader");
+                    let cnt = self.reader.read(&mut buf)?;
 
                     if cnt != 1 {
-                        panic!(
+                        return Err(format!(
                             "Read {} bytes from configured reader, expected exactly 1",
                             cnt
-                        );
+                        )
+                        .into());
                     }
 
                     self.mem[self.dp] = buf[0];
@@ -124,7 +120,7 @@ where
                         self.ip = *self
                             .loops
                             .get(&self.ip)
-                            .expect("Unable to get matching bracket")
+                            .ok_or("Unable to get matching bracket")?;
                     }
                 }
                 ']' => {
@@ -132,16 +128,16 @@ where
                         self.ip = *self
                             .loops
                             .get(&self.ip)
-                            .expect("Unable to get matching bracket")
+                            .ok_or("Unable to get matching bracket")?;
                     }
                 }
-                c => panic!("Unexpected char in code: {}", c),
+                c => return Err(format!("Unexpected char in code: {}", c).into()),
             };
 
             self.ip += 1;
         }
 
-        self.mem
+        Ok(self.mem)
     }
 }
 
@@ -150,7 +146,7 @@ where
     R: Read,
 {
     /// Create a new BrainfuckProgram, specifying the reader. The writer is assumed to be stdout
-    pub fn new_with_reader(input: String, reader: R) -> Self {
+    pub fn new_with_reader(input: String, reader: R) -> InterpreteResult<Self> {
         BrainfuckProgram::new_full(input, stdout(), reader)
     }
 }
@@ -160,7 +156,7 @@ where
     W: Write,
 {
     /// Create a new BrainfuckProgram, specifying the writer. The reader is assumed to be stdin
-    pub fn new_with_writer(input: String, writer: W) -> Self {
+    pub fn new_with_writer(input: String, writer: W) -> InterpreteResult<Self> {
         BrainfuckProgram::new_full(input, writer, stdin())
     }
 }
@@ -168,7 +164,7 @@ where
 impl BrainfuckProgram<Stdin, Stdout> {
     /// Create a new BrainfuckProgram without specifying reader or writer. They are assumed to be
     /// stdin and stdout, respectively
-    pub fn new(input: String) -> Self {
+    pub fn new(input: String) -> InterpreteResult<Self> {
         BrainfuckProgram::new_full(input, stdout(), stdin())
     }
 }
@@ -177,14 +173,14 @@ impl BrainfuckProgram<Stdin, Stdout> {
 mod tests {
     use std::{array, io::Cursor, iter::repeat};
 
-    use crate::arr;
+    use crate::{arr, error::InterpreTestResult};
 
     use super::*;
 
     #[test]
-    fn bracket_matching() {
+    fn bracket_matching() -> InterpreTestResult {
         let input = String::from("[[]][[]abc[]]");
-        let prog = BrainfuckProgram::new(input);
+        let prog = BrainfuckProgram::new(input)?;
 
         let mut expected_loops = HashMap::new();
         expected_loops.insert(1, 2);
@@ -199,37 +195,39 @@ mod tests {
         expected_loops.insert(9, 4);
         expected_loops.insert(8, 7);
 
-        assert_eq!(prog.loops, expected_loops)
+        assert_eq!(prog.loops, expected_loops);
+
+        Ok(())
     }
 
     #[should_panic]
     #[test]
     fn mismatched_brackets() {
         let input = String::from("][");
-        let _ = BrainfuckProgram::new(input);
+        let _ = BrainfuckProgram::new(input).unwrap();
     }
 
     #[should_panic]
     #[test]
     fn mismatched_brackets2() {
         let input = String::from("[[]");
-        let _ = BrainfuckProgram::new(input);
+        let _ = BrainfuckProgram::new(input).unwrap();
     }
 
     #[test]
-    fn addition() {
+    fn addition() -> InterpreTestResult {
         let input1 = String::from("++");
-        let prog1 = BrainfuckProgram::new(input1);
+        let prog1 = BrainfuckProgram::new(input1)?;
 
         let input2 = ['+'; 255].into_iter().collect();
-        let prog2 = BrainfuckProgram::new(input2);
+        let prog2 = BrainfuckProgram::new(input2)?;
 
         let input3 = ['+'; 257].into_iter().collect();
-        let prog3 = BrainfuckProgram::new(input3);
+        let prog3 = BrainfuckProgram::new(input3)?;
 
-        let output1 = prog1.interpret_naive();
-        let output2 = prog2.interpret_naive();
-        let output3 = prog3.interpret_naive();
+        let output1 = prog1.interpret_naive()?;
+        let output2 = prog2.interpret_naive()?;
+        let output3 = prog3.interpret_naive()?;
 
         let mut exp1 = [0u8; 30000];
         let mut exp2 = [0u8; 30000];
@@ -241,21 +239,23 @@ mod tests {
         assert_eq!(output1, exp1);
         assert_eq!(output2, exp2);
         assert_eq!(output3, exp3);
+
+        Ok(())
     }
 
     #[test]
-    fn subtraction() {
+    fn subtraction() -> InterpreTestResult {
         let input1 = String::from("--");
         let input2 = ['-'; 255].into_iter().collect();
         let input3 = ['-'; 257].into_iter().collect();
 
-        let prog1 = BrainfuckProgram::new(input1);
-        let prog2 = BrainfuckProgram::new(input2);
-        let prog3 = BrainfuckProgram::new(input3);
+        let prog1 = BrainfuckProgram::new(input1)?;
+        let prog2 = BrainfuckProgram::new(input2)?;
+        let prog3 = BrainfuckProgram::new(input3)?;
 
-        let output1 = prog1.interpret_naive();
-        let output2 = prog2.interpret_naive();
-        let output3 = prog3.interpret_naive();
+        let output1 = prog1.interpret_naive()?;
+        let output2 = prog2.interpret_naive()?;
+        let output3 = prog3.interpret_naive()?;
 
         let mut exp1 = [0u8; 30000];
         let mut exp2 = [0u8; 30000];
@@ -267,23 +267,25 @@ mod tests {
         assert_eq!(output1, exp1);
         assert_eq!(output2, exp2);
         assert_eq!(output3, exp3);
+
+        Ok(())
     }
 
     #[test]
-    fn inc_dp() {
+    fn inc_dp() -> InterpreTestResult {
         let input1 = String::from("+>++>+++>-");
         let mut input2: String = ['>'; 100].into_iter().collect();
         let mut input3: String = ['>'; 29999].into_iter().collect();
         input2.push('+');
         input3.push('+');
 
-        let prog1 = BrainfuckProgram::new(input1);
-        let prog2 = BrainfuckProgram::new(input2);
-        let prog3 = BrainfuckProgram::new(input3);
+        let prog1 = BrainfuckProgram::new(input1)?;
+        let prog2 = BrainfuckProgram::new(input2)?;
+        let prog3 = BrainfuckProgram::new(input3)?;
 
-        let output1 = prog1.interpret_naive();
-        let output2 = prog2.interpret_naive();
-        let output3 = prog3.interpret_naive();
+        let output1 = prog1.interpret_naive()?;
+        let output2 = prog2.interpret_naive()?;
+        let output3 = prog3.interpret_naive()?;
 
         let exp1 = arr!([0; 30000], (1), (2), (3), (255));
         let exp2 = arr!([0; 30000], (0; 100), (1));
@@ -292,29 +294,33 @@ mod tests {
         assert_eq!(output1, exp1);
         assert_eq!(output2, exp2);
         assert_eq!(output3, exp3);
+
+        Ok(())
     }
 
     #[test]
-    fn dec_dp() {
+    fn dec_dp() -> InterpreTestResult {
         let input1 = String::from(">>>>>+<-<-<-<-");
         let input2 = String::from("<-<-<-<+");
 
-        let prog1 = BrainfuckProgram::new(input1);
-        let mut prog2 = BrainfuckProgram::new(input2);
+        let prog1 = BrainfuckProgram::new(input1)?;
+        let mut prog2 = BrainfuckProgram::new(input2)?;
         prog2.dp = 100;
 
-        let output1 = prog1.interpret_naive();
-        let output2 = prog2.interpret_naive();
+        let output1 = prog1.interpret_naive()?;
+        let output2 = prog2.interpret_naive()?;
 
         let exp1 = arr!([0; 30000], (0), (255; 4), (1));
         let exp2 = arr!([0; 30000], (0; 96), (1), (255; 3));
 
         assert_eq!(output1, exp1);
         assert_eq!(output2, exp2);
+
+        Ok(())
     }
 
     #[test]
-    fn io() {
+    fn io() -> InterpreTestResult {
         let mut stdin_buf: Vec<u8> = (0..100).collect();
         let mut stdout_buf: Vec<u8> = vec![0; 100];
 
@@ -323,8 +329,8 @@ mod tests {
 
         let input = ",>".repeat(100) + "<.".repeat(100).as_str();
 
-        let prog = BrainfuckProgram::new_full(input, writer, reader);
-        let output = prog.interpret_naive();
+        let prog = BrainfuckProgram::new_full(input, writer, reader)?;
+        let output = prog.interpret_naive()?;
 
         let exp = arr!([0u8; 30000]; 0..100);
 
@@ -332,25 +338,29 @@ mod tests {
 
         assert_eq!(stdin_buf, (0..100).collect::<Vec<_>>());
         assert_eq!(stdout_buf, (0..100).rev().collect::<Vec<_>>());
+
+        Ok(())
     }
 
     #[test]
-    fn control_flow_basic() {
+    fn control_flow_basic() -> InterpreTestResult {
         // This program should print out every number between 1 and 255, then exit
         let input = String::from("+[+.]");
 
         let mut stdout_buf = [0u8; 1000];
         let writer = Cursor::new(&mut stdout_buf[..]);
 
-        let prog = BrainfuckProgram::new_with_writer(input, writer);
-        let output = prog.interpret_naive();
+        let prog = BrainfuckProgram::new_with_writer(input, writer)?;
+        let output = prog.interpret_naive()?;
 
         assert_eq!(output, [0; 30000]);
         assert_eq!(stdout_buf, arr!([0u8; 1000]; 2..=255));
+
+        Ok(())
     }
 
     #[test]
-    fn control_flow_extra() {
+    fn control_flow_extra() -> InterpreTestResult {
         // This program first enters the `[+.]` loop, during which it will print every number
         // from 2 to 255, then 0. It will then enter the `[-.]` loop, during which it will print
         // every number from 254 down to 0. It will then read user input and, if it is non-zero,
@@ -366,8 +376,8 @@ mod tests {
         let reader = Cursor::new(&stdin_buf[..]);
         let writer = Cursor::new(&mut stdout_buf[..]);
 
-        let prog = BrainfuckProgram::new_full(input, writer, reader);
-        let output = prog.interpret_naive();
+        let prog = BrainfuckProgram::new_full(input, writer, reader)?;
+        let output = prog.interpret_naive()?;
 
         assert_eq!(output, arr!([0; 30000], (1)));
 
@@ -397,5 +407,7 @@ mod tests {
         );
 
         assert_eq!(stdout_buf, exp);
+
+        Ok(())
     }
 }
