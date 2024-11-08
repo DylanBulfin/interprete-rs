@@ -172,7 +172,7 @@ mod tests {
     use super::*;
 
     macro_rules! mk_test {
-        ([$($input:expr)*], [$($output:expr)*], $func:ident) => {
+        ([$($input:expr),*], [$($output:expr),*], $func:ident) => {
             $(
                 {
                     let input = $input;
@@ -189,121 +189,62 @@ mod tests {
 
     #[test]
     fn math_reduction_test() {
-        let input1 = "+-+-+----+-+-++-+"; // Should be reduced to '-'
-        let input2 = "----+"; // Should reduce to '---'
-        let input3 = "+++++++"; // Should stay the same
-        let input4 = "[+-++----+]>>-+++-"; // Should reduce to "[-]>>+"
-
-        let output1 = "-";
-        let output2 = "---";
-        let output3 = "+++++++";
-        let output4 = "[-]>>+";
-
-        assert_eq!(
-            math_reduction(input1.chars().collect()),
-            output1.chars().collect::<Vec<_>>()
-        );
-        assert_eq!(
-            math_reduction(input2.chars().collect()),
-            output2.chars().collect::<Vec<_>>()
-        );
-        assert_eq!(
-            math_reduction(input3.chars().collect()),
-            output3.chars().collect::<Vec<_>>()
-        );
-        assert_eq!(
-            math_reduction(input4.chars().collect()),
-            output4.chars().collect::<Vec<_>>()
+        mk_test!(
+            [
+                "+-+-+----+-+-++-+",
+                "----+",
+                "+++++++",
+                "[+-++----+]>>-+++-"
+            ],
+            ["-", "---", "+++++++", "[-]>>+"],
+            math_reduction
         );
     }
 
     #[test]
     fn full_dp_reduction_test() {
-        let input1 = "><><><<<<><><>><>"; // Should be reduced to '<'
-        let input2 = "<<<<>"; // Should reduce to '<<<'
-        let input3 = ">>>>>>>"; // Should stay the same
-        let input4 = "[><>><<<<>]>><>>><"; // Should reduce to "[<]>>>"
-
-        let output1 = "<";
-        let output2 = "<<<";
-        let output3 = ">>>>>>>";
-        let output4 = "[<]>>>";
-
-        assert_eq!(
-            full_dp_reduction(input1.chars().collect()),
-            output1.chars().collect::<Vec<_>>()
-        );
-        assert_eq!(
-            full_dp_reduction(input2.chars().collect()),
-            output2.chars().collect::<Vec<_>>()
-        );
-        assert_eq!(
-            full_dp_reduction(input3.chars().collect()),
-            output3.chars().collect::<Vec<_>>()
-        );
-        assert_eq!(
-            full_dp_reduction(input4.chars().collect()),
-            output4.chars().collect::<Vec<_>>()
+        mk_test!(
+            [
+                "><><><<<<><><>><>",
+                "<<<<>",
+                ">>>>>>>",
+                "[><>><<<<>]>><>>><"
+            ],
+            ["<", "<<<", ">>>>>>>", "[<]>>>"],
+            full_dp_reduction
         );
     }
 
     #[test]
     fn safe_dp_reduction_test() {
-        let input1 = "><><><<<<><><>><>"; // Should be reduced to '(3;1)<'
-        let input2 = "<<<<>"; // Should reduce to '(4;0)<<<'
-        let input3 = ">>>>>>>"; // Should stay the same
-        let input4 = "[><>><<<<>]>><>>><"; // Should reduce to "[(2,2)<](0;4)>>>"
-
-        let output1 = "(3;1)<";
-        let output2 = "(4;0)<<<";
-        let output3 = ">>>>>>>";
-        let output4 = "[(2;2)<](0;4)>>>";
-
-        assert_eq!(
-            safe_dp_reduction(input1.chars().collect()),
-            output1.chars().collect::<Vec<_>>()
-        );
-        assert_eq!(
-            safe_dp_reduction(input2.chars().collect()),
-            output2.chars().collect::<Vec<_>>()
-        );
-        assert_eq!(
-            safe_dp_reduction(input3.chars().collect()),
-            output3.chars().collect::<Vec<_>>()
-        );
-        assert_eq!(
-            safe_dp_reduction(input4.chars().collect()),
-            output4.chars().collect::<Vec<_>>()
+        mk_test!(
+            [
+                "><><><<<<><><>><>",
+                "<<<<>",
+                ">>>>>>>",
+                "[><>><<<<>]>><>>><"
+            ],
+            ["(3;1)<", "(4;0)<<<", ">>>>>>>", "[(2;2)<](0;4)>>>"],
+            safe_dp_reduction
         );
     }
 
     #[test]
     fn compress_seq_test() {
-        let input1 = "++++++++<++++";
-        let input2 = "<<<<<<<->>>>>>";
-        let input3 = "(13;2)<<<<<<<<<<<<";
-        let input4 = "[(13;2)<<<<<]+<<<<<<<";
-
-        let output1 = "(8*p)<(4*p)";
-        let output2 = "(7*b)-(6*f)";
-        let output3 = "(13;2)(12*b)";
-        let output4 = "[(13;2)(5*b)]+(7*b)";
-
-        assert_eq!(
-            compress_seq(input1.chars().collect()),
-            output1.chars().collect::<Vec<_>>()
-        );
-        assert_eq!(
-            compress_seq(input2.chars().collect()),
-            output2.chars().collect::<Vec<_>>()
-        );
-        assert_eq!(
-            compress_seq(input3.chars().collect()),
-            output3.chars().collect::<Vec<_>>()
-        );
-        assert_eq!(
-            compress_seq(input4.chars().collect()),
-            output4.chars().collect::<Vec<_>>()
+        mk_test!(
+            [
+                "++++++++<++++",
+                "<<<<<<<->>>>>>",
+                "(13;2)<<<<<<<<<<<<",
+                "[(13;2)<<<<<]+<<<<<<<"
+            ],
+            [
+                "(8*p)<(4*p)",
+                "(7*b)-(6*f)",
+                "(13;2)(12*b)",
+                "[(13;2)(5*b)]+(7*b)"
+            ],
+            compress_seq
         );
     }
 }
