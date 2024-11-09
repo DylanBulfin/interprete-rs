@@ -17,6 +17,48 @@ pub struct NumLiteral {
     suffix: LiteralSuffix,
 }
 
+impl NumLiteral {
+    pub fn from_i32(n: i32) -> Self {
+        if n < 0 {
+            Self {
+                negative: false,
+                int_part: n as u64,
+                float: false,
+                dec_part: 0,
+                suffix: LiteralSuffix::None,
+            }
+        } else {
+            Self {
+                negative: true,
+                int_part: n.unsigned_abs() as u64,
+                float: false,
+                dec_part: 0,
+                suffix: LiteralSuffix::None,
+            }
+        }
+    }
+
+    pub fn from_u32(n: u32) -> Self {
+        Self {
+            negative: false,
+            int_part: n as u64,
+            float: false,
+            dec_part: 0,
+            suffix: LiteralSuffix::Unsigned,
+        }
+    }
+
+    pub fn from_float_halves(x: u32, y: u32) -> Self {
+        Self {
+            negative: false,
+            int_part: x as u64,
+            float: true,
+            dec_part: y as u64,
+            suffix: LiteralSuffix::Unsigned,
+        }
+    }
+}
+
 pub enum ReservedIdent {
     // Math
     Add,
@@ -177,18 +219,19 @@ pub fn tokenize(input: Vec<char>) -> InterpreteResult<Vec<Token>> {
         if curr_index >= input.len() {
             break;
         }
-        res.push(match input[curr_index] {
-            '+' => Token::Plus,
-            '(' => Token::LParen,
-            ')' => Token::RParen,
-            '/' => Token::Div,
-            '*' => Token::Mult,
-            '\'' => Token::SingleQuote,
-            '\"' => Token::DoubleQuote,
+
+        match input[curr_index] {
+            '+' => res.push(Token::Plus),
+            '(' => res.push(Token::LParen),
+            ')' => res.push(Token::RParen),
+            '/' => res.push(Token::Div),
+            '*' => res.push(Token::Mult),
+            '\'' => res.push(Token::SingleQuote),
+            '\"' => res.push(Token::DoubleQuote),
             '0'..='9' => {
                 let (lit, count) = handle_num_literal(&input[curr_index..])?;
                 curr_index += count - 1;
-                Token::NumLiteral(lit)
+                res.push(Token::NumLiteral(lit))
             }
             '-' => {
                 if input
@@ -196,15 +239,16 @@ pub fn tokenize(input: Vec<char>) -> InterpreteResult<Vec<Token>> {
                     .ok_or("Unexpectedly reached end of input")?
                     == &' '
                 {
-                    Token::Minus
+                    res.push(Token::Minus);
                 } else {
                     let (lit, count) = handle_num_literal(&input[curr_index..])?;
                     curr_index += count - 1;
-                    Token::NumLiteral(lit)
+                    res.push(Token::NumLiteral(lit));
                 }
             }
+            ' ' => (),
             _ => unimplemented!(),
-        });
+        };
 
         curr_index += 1;
     }
@@ -273,6 +317,85 @@ mod tests {
         );
         let (input3, output3) = (
             "(-124f)".chars().collect(),
+            vec![
+                Token::LParen,
+                Token::NumLiteral(NumLiteral {
+                    int_part: 124,
+                    float: false,
+                    negative: true,
+                    dec_part: 0,
+                    suffix: LiteralSuffix::Float,
+                }),
+                Token::RParen,
+            ],
+        );
+
+        assert_eq!(tokenize(input1)?, output1);
+        assert_eq!(tokenize(input2)?, output2);
+        assert_eq!(tokenize(input3)?, output3);
+
+        Ok(())
+    }
+
+    #[test]
+    fn math_test() -> InterpreTestResult {
+        let (input1, output1) = (
+            // The lexer does no syntax or type analysis so this is fine
+            "(+  -15.23f 1243u )".chars().collect(),
+            vec![
+                Token::LParen,
+                Token::Plus,
+                Token::NumLiteral(NumLiteral {
+                    int_part: 15,
+                    float: true,
+                    negative: true,
+                    dec_part: 23,
+                    suffix: LiteralSuffix::Float,
+                }),
+                Token::NumLiteral(NumLiteral {
+                    int_part: 1243,
+                    float: false,
+                    negative: false,
+                    dec_part: 0,
+                    suffix: LiteralSuffix::Unsigned,
+                }),
+                Token::RParen,
+            ],
+        );
+        let (input2, output2) = (
+            "(- -124c (/ 0.3 123u))".chars().collect(),
+            vec![
+                Token::LParen,
+                Token::Minus,
+                Token::NumLiteral(NumLiteral {
+                    int_part: 124,
+                    float: false,
+                    negative: true,
+                    dec_part: 0,
+                    suffix: LiteralSuffix::Char,
+                }),
+                Token::LParen,
+                Token::Div,
+                Token::NumLiteral(NumLiteral {
+                    int_part: 0,
+                    float: true,
+                    negative: false,
+                    dec_part: 3,
+                    suffix: LiteralSuffix::None,
+                }),
+                Token::NumLiteral(NumLiteral {
+                    int_part: 123,
+                    float: false,
+                    negative: false,
+                    dec_part: 0,
+                    suffix: LiteralSuffix::Unsigned,
+                }),
+                Token::RParen,
+                Token::RParen,
+            ],
+        );
+        let (input3, output3) = (
+            "(* (/ 2 9) -124f)".chars().collect(),
             vec![
                 Token::LParen,
                 Token::NumLiteral(NumLiteral {
