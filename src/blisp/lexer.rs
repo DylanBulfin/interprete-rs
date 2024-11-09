@@ -1,4 +1,7 @@
-use crate::error::{InterpretError, InterpreteResult};
+use crate::{
+    error::{InterpretError, InterpreteResult},
+    test_macros,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum LiteralSuffix {
@@ -78,7 +81,7 @@ impl NumLiteral {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ReservedIdent {
     // Math
     Add,
@@ -235,6 +238,37 @@ pub enum Token {
     RBrack,
     EOF,
 }
+
+macro_rules! token_helper{
+    ($([$isfunc:ident, $assfunc:ident, $var:ident, $innertype:ty]);+) => {
+        impl Token {
+            $(
+                pub fn $isfunc(&self) -> bool {
+                    match self {
+                        Self::$var(_) => true,
+                        _ => false,
+                    }
+                }
+
+                pub fn $assfunc(&self) -> crate::error::InterpreteResult<&$innertype> {
+                    match self {
+                        Self::$var(v) => Ok(v),
+                        _ => Err(format!("Assertion failed, self: {:?}", self).into()),
+                    }
+                }
+            )+
+        }
+    };
+}
+
+token_helper!(
+    [is_num, assert_num, NumLiteral, NumLiteral];
+    [is_char, assert_char, CharLiteral, u8];
+    [is_string, assert_string, StringLiteral, String];
+    [is_ident, assert_ident, Ident, String];
+    [is_type, assert_type, Type, Type];
+    [is_reserved, assert_reserved, Reserved, ReservedIdent]
+);
 
 impl From<NumLiteral> for Token {
     fn from(value: NumLiteral) -> Self {
