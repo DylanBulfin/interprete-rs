@@ -8,6 +8,20 @@ pub enum LiteralSuffix {
     Char,
 }
 
+impl From<char> for LiteralSuffix {
+    fn from(value: char) -> Self {
+        match value {
+            'c' => LiteralSuffix::Char,
+            'u' => LiteralSuffix::Unsigned,
+            'f' => LiteralSuffix::Float,
+            _ => panic!(
+                "Attempted to convert invalid char {} to LiteralSuffix",
+                value
+            ),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct NumLiteral {
     negative: bool,
@@ -18,43 +32,48 @@ pub struct NumLiteral {
 }
 
 impl NumLiteral {
-    pub fn from_i32(n: i32) -> Self {
-        if n < 0 {
-            Self {
-                negative: false,
-                int_part: n as u64,
-                float: false,
-                dec_part: 0,
-                suffix: LiteralSuffix::None,
-            }
-        } else {
-            Self {
-                negative: true,
-                int_part: n.unsigned_abs() as u64,
-                float: false,
-                dec_part: 0,
-                suffix: LiteralSuffix::None,
-            }
-        }
-    }
-
-    pub fn from_u32(n: u32) -> Self {
+    pub fn new_int(int_part: u64, negative: bool) -> Self {
         Self {
-            negative: false,
-            int_part: n as u64,
-            float: false,
+            int_part,
+            negative,
+            suffix: LiteralSuffix::None,
             dec_part: 0,
-            suffix: LiteralSuffix::Unsigned,
+            float: false,
         }
     }
 
-    pub fn from_float_halves(x: u32, y: u32) -> Self {
+    pub fn new_int_with_suffix(int_part: u64, negative: bool, suffix: char) -> Self {
         Self {
-            negative: false,
-            int_part: x as u64,
+            int_part,
+            negative,
+            suffix: suffix.into(),
+            dec_part: 0,
+            float: false,
+        }
+    }
+
+    pub fn new_float(int_part: u64, dec_part: u64, negative: bool) -> Self {
+        Self {
+            int_part,
+            dec_part,
+            negative,
             float: true,
-            dec_part: y as u64,
-            suffix: LiteralSuffix::Unsigned,
+            suffix: LiteralSuffix::None,
+        }
+    }
+
+    pub fn new_float_with_suffix(
+        int_part: u64,
+        dec_part: u64,
+        negative: bool,
+        suffix: char,
+    ) -> Self {
+        Self {
+            int_part,
+            dec_part,
+            negative,
+            float: true,
+            suffix: suffix.into(),
         }
     }
 }
@@ -133,6 +152,12 @@ pub enum Token {
     SingleQuote,
     DoubleQuote,
     EOF,
+}
+
+impl From<NumLiteral> for Token {
+    fn from(value: NumLiteral) -> Self {
+        Self::NumLiteral(value)
+    }
 }
 
 fn handle_num_literal(input: &[char]) -> InterpreteResult<(NumLiteral, usize)> {
@@ -262,15 +287,47 @@ mod tests {
 
     use super::*;
 
+    // This is an attempt at a macro to make forming numeric literals easier but it's a complete
+    // nightmare
+    macro_rules! num_lit {
+        ($(-1$neg:vis,;)? $int:literal $(,$float:literal)? $(;$suffix:ident)?) => {
+            #[allow(unused_mut)]
+            {
+                let mut negative = false;
+                let mut int_part = $int;
+                let mut float = false;
+                let mut dec_part = 0;
+                let mut suffix = LiteralSuffix::None;
+
+                $(
+                    $ignore($neg);
+                    negative = true;
+                    int_part = -1 * int_part;
+                )?
+
+                $(dec_part = $float;)?
+                $(suffix = LiteralSuffix::$suffix;)?
+
+                NumLiteral {
+                    negative,
+                    int_part,
+                    dec_part,
+                    suffix,
+                    float,
+                }
+            }
+        };
+    }
+
     #[test]
     fn parentheses() -> InterpreTestResult {
         let (input1, output1) = (
             "(())".chars().collect(),
-            vec![Token::LParen, Token::LParen, Token::RParen, Token::RParen],
+            [Token::LParen, Token::LParen, Token::RParen, Token::RParen],
         );
         let (input2, output2) = (
             "((())".chars().collect(),
-            vec![
+            [
                 Token::LParen,
                 Token::LParen,
                 Token::LParen,
@@ -289,43 +346,25 @@ mod tests {
     fn num_literals() -> InterpreTestResult {
         let (input1, output1) = (
             "(1243)".chars().collect(),
-            vec![
+            [
                 Token::LParen,
-                Token::NumLiteral(NumLiteral {
-                    int_part: 1243,
-                    float: false,
-                    negative: false,
-                    dec_part: 0,
-                    suffix: LiteralSuffix::None,
-                }),
+                Token::from(NumLiteral::new_int(1243, false)),
                 Token::RParen,
             ],
         );
         let (input2, output2) = (
             "(-124.3)".chars().collect(),
-            vec![
+            [
                 Token::LParen,
-                Token::NumLiteral(NumLiteral {
-                    int_part: 124,
-                    float: true,
-                    negative: true,
-                    dec_part: 3,
-                    suffix: LiteralSuffix::None,
-                }),
+                Token::from(NumLiteral::new_float(124, 3, true)),
                 Token::RParen,
             ],
         );
         let (input3, output3) = (
             "(-124f)".chars().collect(),
-            vec![
+            [
                 Token::LParen,
-                Token::NumLiteral(NumLiteral {
-                    int_part: 124,
-                    float: false,
-                    negative: true,
-                    dec_part: 0,
-                    suffix: LiteralSuffix::Float,
-                }),
+                Token::from(NumLiteral::new_int_with_suffix(124, true, 'f')),
                 Token::RParen,
             ],
         );
@@ -342,69 +381,39 @@ mod tests {
         let (input1, output1) = (
             // The lexer does no syntax or type analysis so this is fine
             "(+  -15.23f 1243u )".chars().collect(),
-            vec![
+            [
                 Token::LParen,
                 Token::Plus,
-                Token::NumLiteral(NumLiteral {
-                    int_part: 15,
-                    float: true,
-                    negative: true,
-                    dec_part: 23,
-                    suffix: LiteralSuffix::Float,
-                }),
-                Token::NumLiteral(NumLiteral {
-                    int_part: 1243,
-                    float: false,
-                    negative: false,
-                    dec_part: 0,
-                    suffix: LiteralSuffix::Unsigned,
-                }),
+                Token::from(NumLiteral::new_float_with_suffix(15, 23, true, 'f')),
+                Token::from(NumLiteral::new_int_with_suffix(1243, false, 'u')),
                 Token::RParen,
             ],
         );
         let (input2, output2) = (
             "(- -124c (/ 0.3 123u))".chars().collect(),
-            vec![
+            [
                 Token::LParen,
                 Token::Minus,
-                Token::NumLiteral(NumLiteral {
-                    int_part: 124,
-                    float: false,
-                    negative: true,
-                    dec_part: 0,
-                    suffix: LiteralSuffix::Char,
-                }),
+                Token::from(NumLiteral::new_int_with_suffix(124, true, 'c')),
                 Token::LParen,
                 Token::Div,
-                Token::NumLiteral(NumLiteral {
-                    int_part: 0,
-                    float: true,
-                    negative: false,
-                    dec_part: 3,
-                    suffix: LiteralSuffix::None,
-                }),
-                Token::NumLiteral(NumLiteral {
-                    int_part: 123,
-                    float: false,
-                    negative: false,
-                    dec_part: 0,
-                    suffix: LiteralSuffix::Unsigned,
-                }),
+                Token::from(NumLiteral::new_float(0, 3, false)),
+                Token::from(NumLiteral::new_int_with_suffix(123, false, 'u')),
                 Token::RParen,
                 Token::RParen,
             ],
         );
         let (input3, output3) = (
             "(* (/ 2 9) -124f)".chars().collect(),
-            vec![
+            [
                 Token::LParen,
-                Token::NumLiteral(NumLiteral {
-                    int_part: 124,
-                    float: false,
-                    negative: true,
-                    dec_part: 0,
-                    suffix: LiteralSuffix::Float,
-                }),
+                Token::Mult,
+                Token::LParen,
+                Token::Div,
+                Token::from(NumLiteral::new_int(2, false)),
+                Token::from(NumLiteral::new_int(9, false)),
+                Token::RParen,
+                Token::from(NumLiteral::new_int_with_suffix(124, true, 'f')),
                 Token::RParen,
             ],
         );
