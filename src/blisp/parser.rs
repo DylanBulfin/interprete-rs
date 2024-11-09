@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::error::InterpreteResult;
+use crate::error::{InterpretError, InterpreteResult};
 
 use super::lexer::Token;
 
@@ -134,9 +134,6 @@ fn parse_args(tokens: &[Token]) -> ExecResult {
         .get(1)
         .ok_or("Unexpectedly reached end of input while trying to parse arguments")?
     {
-        &Token::RParen => {
-            // Reached end of processing
-        }
         &Token::LBrack
         | &Token::LParen
         | &Token::Ident(_)
@@ -147,11 +144,18 @@ fn parse_args(tokens: &[Token]) -> ExecResult {
         | &Token::UnitLiteral => {
             // We have <Val> and need to process it
             let (val, val_cnt) = parse_val(tokens)?;
-            let (tail, tail_cnt) = parse_args(tokens)?;
 
-            let node = rule_node_helper!(Args, [val, tail]);
-
-            Ok((node, val_cnt + tail_cnt))
+            Ok(
+                if tokens.get(1 + val_cnt).ok_or::<InterpretError>(
+                    "Unexpectedly reached end of input while trying to parse arguments".into(),
+                )? == &Token::RParen
+                {
+                    (rule_node_helper!(Args, val), val_cnt)
+                } else {
+                    let (tail, tail_cnt) = parse_args(tokens)?;
+                    (rule_node_helper!(Args, [val, tail]), val_cnt + tail_cnt)
+                },
+            )
         }
         t => Err(format!(
             "Unexpected token encountered while parsing expression body: {:?}",
@@ -161,7 +165,7 @@ fn parse_args(tokens: &[Token]) -> ExecResult {
     }
 }
 
-fn parse_val(tokens: &[Tokens]) -> ExecResult {
+fn parse_val(tokens: &[Token]) -> ExecResult {
     unimplemented!()
 }
 
