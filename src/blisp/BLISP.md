@@ -68,6 +68,7 @@ same type and they can't be coerced to the same type, the list declaration is in
 - `[1, 1c]` is a compilation error because there is no implicit coercion from int literal to char (may change)
 
 #### (2-)Tuples
+Removing tuples from the spec for now. They create all sorts of annoying edge cases and aren't that useful anyway
 I realized it would create an annoying edge case to have non-statement objects enclosed by parentheses, so for now
 tuples can only be created with the tuple function: `(, <item1>, <item2)`
 - `(, 1 'a')` is `tuple<int, char>`
@@ -175,48 +176,71 @@ same type would be valid (and a few others).
     Without `eval` this would throw a type error trying to match `()` with `string`
 
 ## Grammar
-I'm writing this without doing a refresher on grammars so it may be wrong. Should function as a jumping off point
-though.
-
+My previous grammar was too low-level to be useful in the new implementation. Now that the `Token` type is fairly
+well-defined I can do another quick pass. `<>` represent rules, `[]` represents tokens
 ```
-<Prog> -> (<Expr>)
+<Prog> => <Expr>
 
-<Expr> -> <Value> | <FuncCall>
+<Expr> => [LParen] <ExprBody> [RParen]
+<ExprBody> => <Val> | <FuncCall>
 
-<Value> -> <ListVal> | <StringVal> | <TupleVal> | <ScalarVal> | <UnitVal>
+<Val> => <ListVal> | <Expr> | [Ident] | [Type] | [CharLiteral] | [String] | [NumLiteral] | [UnitLiteral]
 
-<ListVal> -> [<ListMembers>]
-<ListMembers> -> <Value> | <Value> <ListMembers>
+<ListVal> => [LBrack] <ListBody> [RBrack]
+<ListBody> => <Val> | <Val> <ListBody>
 
-<StringVal> -> "" | "<StringMembers>"
-<StringMembers> -> <CharLiteralRaw> | <CharLiteral><StringMembers>
+<FuncCall> => [ReservedIdent] <Args>
+<Args> => <Val> | <Val> <Args>
+```
 
-<TupleVal> -> (<Value>, <Value>)
+Below I list which tokens can begin which rules:
+```
+<Prog>: [LParen]
 
-<ScalarVal> -> <Ident> | <CharLiteral> | <NumLiteral>
+<Expr>: [LParen]
+<ExprBody>: [LBrack], [LParen], [Ident], [Type], [CharLiteral], [String], [NumLiteral], [UnitLiteral], [ReservedIdent]
 
-<CharLiteral> -> '<CharLiteralRaw>'
-<CharLiteralRaw> -> a | b | ...
+<Val>: [LBrack], [LParen], [Ident], [Type], [CharLiteral], [String], [NumLiteral], [UnitLiteral]
 
-<NumLiteral> -> <FloatLiteral> | <IntLiteral>
+<ListVal>: [LBrack]
+<ListBody>: [LBrack], [LParen], [Ident], [Type], [CharLiteral], [String], [NumLiteral], [UnitLiteral], [ReservedIdent]
 
-<FloatLiteral> -> -<UnsignedFloatLiteral> | <UnsignedFloatLiteral>
-<UnsignedFloatLiteral> -> <FloatSegment>. | <FloatSegment>.<FloatSegment>
-<FloatSegment> -> <Digit> | <Digit><FloatSegment>
+<FuncCall>: [ReservedIdent]
+<Args>: [LBrack], [LParen], [Ident], [Type], [CharLiteral], [String], [NumLiteral], [UnitLiteral]
+```
 
-<IntLiteral> -> <IntLiteralBody> | <IntLiteralBody><IntTypeSuffix>
-<IntLiteralBody> -> -<UnsignedIntLiteral> | <UnsignedIntLiteral>
-<UnsignedIntLiteral> -> <Digit> | <Digit><UnsignedIntLiteral>
-<IntTypeSuffix> -> c | u | f
+And now the tokens that can end each rule:
+```
+<Prog>: [RParen]
 
-<UnitVal> -> ()
+<Expr>: [RParen]
+<ExprBody>: [RBrack], [RParen], [Ident], [Type], [CharLiteral], [String], [NumLiteral], [UnitLiteral]
 
-<Ident> -> <Symbol> | <Alphabetic><IdentTail>
-<IdentTail> -> <Alphanumeric> | <Alphanumeric><IdentTail>
+<Val>: [RBrack], [RParen], [Ident], [Type], [CharLiteral], [String], [NumLiteral], [UnitLiteral]
 
-// May need to disallow no-arg functions to avoid parsing ambiguity
-<FuncCall> -> (<Ident> <Args>)
-<Args> -> <Value> | <Value> <Args>
+<ListVal>: [RBrack]
+<ListBody>: [RBrack], [RParen], [Ident], [Type], [CharLiteral], [String], [NumLiteral], [UnitLiteral]
+
+<FuncCall>: [RBrack], [RParen], [Ident], [Type], [CharLiteral], [String], [NumLiteral], [UnitLiteral]
+<Args>: [RBrack], [RParen], [Ident], [Type], [CharLiteral], [String], [NumLiteral], [UnitLiteral]
+```
+
+### Token Following
+I need to know which rules each token can be a part of, and which other tokens can follow them.
+
+#### LParen
+`LParen` can only exist at the beginning of an expression, and it *always* exists at the beginning of any expression.
+When we encounter an `LParen` it starts the `Expr` rule. This means we have the following options for next token:
+```
+[LBrack] =>        Means we are in Expr -> ExprBody -> Val -> ListVal rule now
+[LParen] =>        Means we are in a new Expr
+[Ident] =>         *TERMINAL* means we have resolved ExprBody = [Ident] and can move on
+[Type] =>          *TERMINAL* means ExprBody = [Type] 
+[CharLiteral] =>   *TERMINAL* means ExprBody = [CharLiteral]
+[String] =>        *TERMINAL* means ExprBody = [String] 
+[NumLiteral] =>    *TERMINAL* means ExprBody = [NumLiteral]
+[UnitLiteral] =>   *TERMINAL* means ExprBody = [UnitLiteral]
+[ReservedIdent] => Means we are in Expr -> FuncCall rule now
 ```
 
 ## Parser Edge Cases
