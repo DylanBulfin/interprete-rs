@@ -3,7 +3,7 @@ use crate::{
     test_macros,
 };
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum LiteralSuffix {
     None,
     Unsigned,
@@ -25,7 +25,7 @@ impl From<char> for LiteralSuffix {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct NumLiteral {
     negative: bool,
     int_part: u64,
@@ -165,7 +165,7 @@ impl TryFrom<String> for ReservedIdent {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Type {
     Int,
     UInt,
@@ -223,7 +223,7 @@ impl TryFrom<String> for Type {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
     NumLiteral(NumLiteral),
     CharLiteral(u8),
@@ -520,11 +520,13 @@ pub fn tokenize(input: Vec<char>) -> InterpreteResult<Vec<Token>> {
                 curr_index += adj;
             }
             ' ' => (),
-            c => panic!("Haven't implemented the char {}", c),
+            c => return Err(format!("Haven't implemented the char {}", c).into()),
         };
 
         curr_index += 1;
     }
+
+    res.push(Token::EOF);
 
     Ok(res)
 }
@@ -540,7 +542,13 @@ mod tests {
         let (input1, output1) = (
             // Without the space this is interpreted as a unit literal
             "(( ))".chars().collect(),
-            [Token::LParen, Token::LParen, Token::RParen, Token::RParen],
+            [
+                Token::LParen,
+                Token::LParen,
+                Token::RParen,
+                Token::RParen,
+                Token::EOF,
+            ],
         );
         let (input2, output2) = (
             "((( ))".chars().collect(),
@@ -550,6 +558,7 @@ mod tests {
                 Token::LParen,
                 Token::RParen,
                 Token::RParen,
+                Token::EOF,
             ],
         );
 
@@ -563,7 +572,13 @@ mod tests {
     fn brackets() -> InterpreTestResult {
         let (input1, output1) = (
             "([])".chars().collect(),
-            [Token::LParen, Token::LBrack, Token::RBrack, Token::RParen],
+            [
+                Token::LParen,
+                Token::LBrack,
+                Token::RBrack,
+                Token::RParen,
+                Token::EOF,
+            ],
         );
         let (input2, output2) = (
             "([[])".chars().collect(),
@@ -573,6 +588,7 @@ mod tests {
                 Token::LBrack,
                 Token::RBrack,
                 Token::RParen,
+                Token::EOF,
             ],
         );
 
@@ -590,6 +606,7 @@ mod tests {
                 Token::LParen,
                 Token::from(NumLiteral::new_int(1243, false)),
                 Token::RParen,
+                Token::EOF,
             ],
         );
         let (input2, output2) = (
@@ -598,6 +615,7 @@ mod tests {
                 Token::LParen,
                 Token::from(NumLiteral::new_float(124, 3, true)),
                 Token::RParen,
+                Token::EOF,
             ],
         );
         let (input3, output3) = (
@@ -606,6 +624,7 @@ mod tests {
                 Token::LParen,
                 Token::from(NumLiteral::new_int_with_suffix(124, true, 'f')),
                 Token::RParen,
+                Token::EOF,
             ],
         );
 
@@ -627,6 +646,7 @@ mod tests {
                 Token::from(NumLiteral::new_float_with_suffix(15, 23, true, 'f')),
                 Token::from(NumLiteral::new_int_with_suffix(1243, false, 'u')),
                 Token::RParen,
+                Token::EOF,
             ],
         );
         let (input2, output2) = (
@@ -641,6 +661,7 @@ mod tests {
                 Token::from(NumLiteral::new_int_with_suffix(123, false, 'u')),
                 Token::RParen,
                 Token::RParen,
+                Token::EOF,
             ],
         );
         let (input3, output3) = (
@@ -655,6 +676,7 @@ mod tests {
                 Token::RParen,
                 Token::from(NumLiteral::new_int_with_suffix(124, true, 'f')),
                 Token::RParen,
+                Token::EOF,
             ],
         );
 
@@ -679,6 +701,7 @@ mod tests {
                 Token::CharLiteral(b'Z'),
                 Token::CharLiteral(b'0'),
                 Token::RParen,
+                Token::EOF,
             ],
         );
         let (input2, output2) = (
@@ -695,6 +718,7 @@ mod tests {
                 Token::CharLiteral(b'`'),
                 Token::CharLiteral(b'\''),
                 Token::RParen,
+                Token::EOF,
             ],
         );
 
@@ -719,6 +743,7 @@ mod tests {
                 Token::CharLiteral(b'Z'),
                 Token::from("FNIDENSIEN"),
                 Token::RParen,
+                Token::EOF,
             ],
         );
         let (input2, output2) = (
@@ -739,6 +764,7 @@ mod tests {
                 // Defining it as below to makes sure the escaping of the `\` is working
                 Token::from(String::from_iter([')', ')', '\\', 'n'])),
                 Token::RParen,
+                Token::EOF,
             ],
         );
 
@@ -765,6 +791,7 @@ mod tests {
                 Token::Type(Type::List(Box::new(Type::Char))),
                 Token::Type(Type::List(Box::new(Type::List(Box::new(Type::UInt))))),
                 Token::RParen,
+                Token::EOF,
             ],
         );
 
@@ -809,6 +836,7 @@ mod tests {
                 ReservedIdent::Eval.into(),
                 ReservedIdent::ToString.into(),
                 Token::RParen,
+                Token::EOF,
             ]
         );
 
@@ -831,6 +859,7 @@ mod tests {
                 Token::Ident("iaernds".to_string()),
                 Token::LBrack,
                 Token::RParen,
+                Token::EOF,
             ],
         );
 
