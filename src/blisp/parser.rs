@@ -301,11 +301,11 @@ impl From<ParseToken> for Node {
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct RuleNodeData {
     rule: Rule,
-    children: Vec<Rc<Node>>,
+    children: Vec<Node>,
 }
 
 impl RuleNodeData {
-    pub fn new(rule: Rule, children: Vec<Rc<Node>>) -> Self {
+    pub fn new(rule: Rule, children: Vec<Node>) -> Self {
         Self { rule, children }
     }
 }

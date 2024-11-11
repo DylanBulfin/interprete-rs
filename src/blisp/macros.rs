@@ -85,7 +85,7 @@ macro_rules! rule_node_helper {
     ($rule:ident, $child:ident) => {
         {
             $crate::blisp::macros::import!(parser);
-            Node::Rule(RuleNodeData::new(Rule::$rule, vec![std::rc::Rc::new($child)]))
+            Node::Rule(RuleNodeData::new(Rule::$rule, vec![$child]))
         }
     };
     ($rule:ident, [$($child:expr),+]) => {
@@ -93,7 +93,7 @@ macro_rules! rule_node_helper {
             $crate::blisp::macros::import!(parser);
             Node::Rule(RuleNodeData::new(
                  Rule::$rule,
-                 vec![$(std::rc::Rc::new($child),)+],
+                 vec![$($child,)+],
             ))
         }
     }
@@ -267,21 +267,21 @@ mod tests {
         let exp1 = Node::Rule(RuleNodeData::new(
             Rule::List,
             vec![
-                Rc::new(Node::Leaf(ParseToken::UnitLiteral)),
-                Rc::new(Node::Leaf(ParseToken::from(b'a'))),
+                Node::Leaf(ParseToken::UnitLiteral),
+                Node::Leaf(ParseToken::from(b'a')),
             ],
         ));
         let exp2 = Node::Rule(RuleNodeData::new(
             Rule::Args,
             vec![
-                Rc::new(Node::Leaf(ParseToken::from("TESTSTR"))),
-                Rc::new(Node::Rule(RuleNodeData::new(
+                Node::Leaf(ParseToken::from("TESTSTR")),
+                Node::Rule(RuleNodeData::new(
                     Rule::List,
                     vec![
-                        Rc::new(Node::Leaf(ParseToken::UnitLiteral)),
-                        Rc::new(Node::Leaf(ParseToken::from(b'a'))),
+                        Node::Leaf(ParseToken::UnitLiteral),
+                        Node::Leaf(ParseToken::from(b'a')),
                     ],
-                ))),
+                )),
             ],
         ));
 
@@ -314,18 +314,14 @@ mod tests {
                                     Val,
                                     [Node::from(ParseToken::StringLiteral("ABCD".to_string()))]
                                 )]
-                                .map(Rc::new)
                                 .to_vec(),
                             )),
                         ]
-                        .map(Rc::new)
                         .to_vec(),
                     )),
                 ]
-                .map(Rc::new)
                 .to_vec(),
             ))]
-            .map(Rc::new)
             .to_vec(),
         ))
     }
@@ -351,20 +347,15 @@ mod tests {
                                 rule_node_helper!(Val, [Node::from(ParseToken::CharLiteral(b'd'))]),
                                 Node::Rule(RuleNodeData::new(
                                     Rule::Args,
-                                    [rule_node_helper!(Val, [get_test_list_node()])]
-                                        .map(Rc::new)
-                                        .to_vec(),
+                                    [rule_node_helper!(Val, [get_test_list_node()])].to_vec(),
                                 )),
                             ]
-                            .map(Rc::new)
                             .to_vec(),
                         )),
                     ]
-                    .map(Rc::new)
                     .to_vec(),
                 )),
             ]
-            .map(Rc::new)
             .to_vec(),
         ))
     }
@@ -382,26 +373,26 @@ mod tests {
 
         let exp1 = Node::Rule(RuleNodeData::new(
             Rule::Prog,
-            vec![Rc::new(Node::Rule(RuleNodeData::new(
+            vec![Node::Rule(RuleNodeData::new(
                 Rule::Expr,
-                vec![Rc::new(Node::Rule(RuleNodeData::new(
+                vec![Node::Rule(RuleNodeData::new(
                     Rule::ExprBody,
-                    vec![Rc::new(Node::Rule(RuleNodeData::new(
+                    vec![Node::Rule(RuleNodeData::new(
                         Rule::Val,
-                        vec![Rc::new(get_test_list_node())],
-                    )))],
-                )))],
-            )))],
+                        vec![get_test_list_node()],
+                    ))],
+                ))],
+            ))],
         ));
         let exp2 = Node::Rule(RuleNodeData::new(
             Rule::Prog,
-            vec![Rc::new(Node::Rule(RuleNodeData::new(
+            vec![Node::Rule(RuleNodeData::new(
                 Rule::Expr,
-                vec![Rc::new(Node::Rule(RuleNodeData::new(
+                vec![Node::Rule(RuleNodeData::new(
                     Rule::ExprBody,
-                    vec![Rc::new(get_test_func_call_node())],
-                )))],
-            )))],
+                    vec![get_test_func_call_node()],
+                ))],
+            ))],
         ));
 
         assert_eq!(node1, (exp1, 7));
@@ -478,39 +469,39 @@ mod tests {
 
         let exp1 = Node::Rule(RuleNodeData::new(
             Rule::Prog,
-            vec![Rc::new(Node::Rule(RuleNodeData::new(
+            vec![Node::Rule(RuleNodeData::new(
                 Rule::Expr,
-                vec![Rc::new(Node::Rule(RuleNodeData::new(
+                vec![Node::Rule(RuleNodeData::new(
                     Rule::ExprBody,
-                    vec![Rc::new(Node::Rule(RuleNodeData::new(
+                    vec![Node::Rule(RuleNodeData::new(
                         Rule::Val,
-                        vec![Rc::new(Node::Leaf(ParseToken::UnitLiteral))],
-                    )))],
-                )))],
-            )))],
+                        vec![Node::Leaf(ParseToken::UnitLiteral)],
+                    ))],
+                ))],
+            ))],
         ));
         let exp2 = Node::Rule(RuleNodeData::new(
             Rule::Prog,
-            vec![Rc::new(Node::Rule(RuleNodeData::new(
+            vec![Node::Rule(RuleNodeData::new(
                 Rule::Expr,
-                vec![Rc::new(Node::Rule(RuleNodeData::new(
+                vec![Node::Rule(RuleNodeData::new(
                     Rule::ExprBody,
-                    vec![Rc::new(Node::Rule(RuleNodeData::new(
+                    vec![Node::Rule(RuleNodeData::new(
                         Rule::Val,
-                        vec![Rc::new(Node::Leaf(ParseToken::from("ABC")))],
-                    )))],
-                )))],
-            )))],
+                        vec![Node::Leaf(ParseToken::from("ABC"))],
+                    ))],
+                ))],
+            ))],
         ));
         let exp3 = Node::Rule(RuleNodeData::new(
             Rule::Prog,
-            vec![Rc::new(Node::Rule(RuleNodeData::new(
+            vec![Node::Rule(RuleNodeData::new(
                 Rule::Expr,
-                vec![Rc::new(Node::Rule(RuleNodeData::new(
+                vec![Node::Rule(RuleNodeData::new(
                     Rule::ExprBody,
-                    vec![Rc::new(get_test_func_call_node())],
-                )))],
-            )))],
+                    vec![get_test_func_call_node()],
+                ))],
+            ))],
         ));
 
         assert_eq!(node1, exp1);
