@@ -6,11 +6,11 @@ version = 3
 name = "interprete-rs"
 version = "0.1.0"
 dependencies = [
- "interprete-rs-derive",
+ "interprete-rs-macros",
 ]
 
 [[package]]
-name = "interprete-rs-derive"
+name = "interprete-rs-macros"
 version = "0.1.0"
 dependencies = [
  "quote",

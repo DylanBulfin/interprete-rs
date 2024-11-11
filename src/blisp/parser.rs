@@ -33,7 +33,7 @@ macro_rules! rule_node_helper {
     ($rule:ident, [$($child:expr),+]) => {
         {
             Node::Rule(RuleNodeData {
-                rule: Rule::Expr,
+                rule: Rule::$rule,
                 children: vec![
                     $(Rc::new($child),)+
                 ],
@@ -153,7 +153,7 @@ fn parse_args(tokens: &[Token]) -> ExecResult {
                 {
                     (rule_node_helper!(Args, val), val_cnt)
                 } else {
-                    let (tail, tail_cnt) = parse_args(tokens)?;
+                    let (tail, tail_cnt) = parse_args(&tokens[1..])?;
                     (rule_node_helper!(Args, [val, tail]), val_cnt + tail_cnt)
                 },
             )
@@ -195,7 +195,7 @@ fn parse_list(tokens: &[Token]) -> ExecResult {
     if tokens[0] == Token::LBrack {
         let (child, cnt) = parse_list_body(&tokens[1..])?;
         let node = rule_node_helper!(
-            ListVal,
+            List,
             [Node::Leaf(Token::LBrack), child, Node::Leaf(Token::RBrack)]
         );
 
@@ -214,7 +214,29 @@ fn parse_list(tokens: &[Token]) -> ExecResult {
 }
 
 fn parse_list_body(tokens: &[Token]) -> ExecResult {
-    unimplemented!()
+    match &tokens[0] {
+        val_tokens_pat!() => {
+            // We have <Val> and need to process it
+            let (val, val_cnt) = parse_val(tokens)?;
+
+            Ok(
+                if tokens.get(val_cnt).ok_or::<InterpretError>(
+                    "Unexpectedly reached end of input while trying to parse list".into(),
+                )? == &Token::RBrack
+                {
+                    (rule_node_helper!(ListBody, val), val_cnt)
+                } else {
+                    let (tail, tail_cnt) = parse_list_body(&tokens[1..])?;
+                    (rule_node_helper!(ListBody, [val, tail]), val_cnt + tail_cnt)
+                },
+            )
+        }
+        t => Err(format!(
+            "Unexpected token encountered while parsing expression body: {:?}",
+            t
+        )
+        .into()),
+    }
 }
 
 // Want to create functions that "execute a rule" by gobbling tokens and return Nodes
@@ -228,8 +250,18 @@ pub enum Node {
     Rule(RuleNodeData),
 }
 
+impl Node {
+    pub fn new_rule_node(rule: Rule, children: Vec<Node>) -> Self {
+        Self::Rule(RuleNodeData {
+            rule,
+            children: children.into_iter().map(Rc::new).collect(),
+        })
+    }
+}
+
 impl From<Token> for Node {
     fn from(value: Token) -> Self {
+        Node::Leaf(value)
     }
 }
 
@@ -258,6 +290,7 @@ mod tests {
     use crate::{
         blisp::{
             lexer::{tokenize, NumLiteral, Token, Type},
+            macros::{assert_fails, assert_fails_parser},
             parser::parse_val,
         },
         error::InterpreTestResult,
@@ -265,7 +298,21 @@ mod tests {
 
     use super::*;
 
-    macro_rules! val_node_helper {
+    fn fails() {
+        panic!("TestMessage");
+    }
+
+    assert_fails!(assert_fails_test => fails());
+    assert_fails!(assert_fails_message_test => fails(); "TestMessage");
+
+    // Creates a Prog node representing a program with a single Val in the main expression, e.g.
+    // `(12)` or `(["ABC", 12])`
+    //
+    // You could create a parse tree for `(12)` with
+    //      `nested_val_node_helper(Token::from(NumLiteral::new_int(12, false)))`
+    // For `(["ABC", 12])` you could use `nested_val_node_helper([list_node])` where
+    //      `list_node: Node::Rule(RuleNodeData { rule: Rule::List, .. })`
+    macro_rules! nested_val_node_helper {
         ([$node:expr]) => {{
             let node = $node;
             let node = rule_node_helper!(Val, node);
@@ -288,6 +335,31 @@ mod tests {
             let node = rule_node_helper!(Prog, node);
             node
         }};
+    }
+
+    // Expects a list of Val nodes as input
+    macro_rules! list_node_helper {
+        [$($item:expr),+] => {{
+            let mut vec: Vec<Node> = [$($item),+].into_iter().collect();
+            let mut node = Node::new_rule_node(Rule::ListBody, vec![vec.pop().unwrap()]);
+
+            for item in vec {
+                node = Node::new_rule_node(Rule::ListBody, vec![item, node]);
+            }
+
+            node = Node::new_rule_node(
+                Rule::List,
+                vec![Node::from(Token::LBrack), node, Node::from(Token::RBrack)]
+            );
+
+            node
+        }};
+    }
+
+    macro_rules! literal_val_node {
+        ($tok:expr) => {
+            Node::new_rule_node(Rule::Val, vec![Node::from($tok)])
+        };
     }
 
     macro_rules! do_parse_test {
@@ -334,36 +406,97 @@ mod tests {
         do_parse_test!(
             [
                 "(-1.24f)",
-                val_node_helper!(Token::from(NumLiteral::new_float_with_suffix(
+                nested_val_node_helper!(Token::from(NumLiteral::new_float_with_suffix(
                     1, 24, true, 'f'
                 ))),
                 3
             ],
             [
                 "(arstien)",
-                val_node_helper!(Token::Ident("arstien".to_string())),
+                nested_val_node_helper!(Token::Ident("arstien".to_string())),
                 3
             ],
-            ["(uint)", val_node_helper!(Token::Type(Type::UInt)), 3],
-            ["('a')", val_node_helper!(Token::CharLiteral(b'a')), 3],
+            [
+                "(uint)",
+                nested_val_node_helper!(Token::Type(Type::UInt)),
+                3
+            ],
+            [
+                "('a')",
+                nested_val_node_helper!(Token::CharLiteral(b'a')),
+                3
+            ],
             [
                 "(\"teststr\")",
-                val_node_helper!(Token::StringLiteral("teststr".to_string())),
+                nested_val_node_helper!(Token::StringLiteral("teststr".to_string())),
                 3
             ],
-            ["(())", val_node_helper!(Token::UnitLiteral), 3]
+            ["(())", nested_val_node_helper!(Token::UnitLiteral), 3]
         )
     }
 
     #[test]
-    fn parse_list_val_test() -> InterpreTestResult {
-        do_parse_test!([
-            "([12.4 'c' \"ATBS\"])",
-            val_node_helper!([rule_node_helper!(
+    fn parse_list_test() -> InterpreTestResult {
+        let list_node = Node::Rule(RuleNodeData {
+            rule: Rule::List,
+            children: [
+                Node::from(Token::LBrack),
+                Node::Rule(RuleNodeData {
+                    rule: Rule::ListBody,
+                    children: [
+                        Node::new_rule_node(
+                            Rule::Val,
+                            vec![Node::from(Token::from(NumLiteral::new_float(12, 4, false)))],
+                        ),
+                        Node::Rule(RuleNodeData {
+                            rule: Rule::ListBody,
+                            children: [
+                                Node::new_rule_node(
+                                    Rule::Val,
+                                    vec![Node::from(Token::CharLiteral(b'c'))],
+                                ),
+                                Node::Rule(RuleNodeData {
+                                    rule: Rule::ListBody,
+                                    children: [Node::new_rule_node(
+                                        Rule::Val,
+                                        vec![Node::from(Token::StringLiteral("ABCD".to_string()))],
+                                    )]
+                                    .map(Rc::new)
+                                    .to_vec(),
+                                }),
+                            ]
+                            .map(Rc::new)
+                            .to_vec(),
+                        }),
+                    ]
+                    .map(Rc::new)
+                    .to_vec(),
+                }),
+                Node::from(Token::RBrack),
+            ]
+            .map(Rc::new)
+            .to_vec(),
+        });
 
+        let new_list_node = list_node_helper!(
+            literal_val_node!(Token::from(NumLiteral::new_float(12, 4, false))),
+            literal_val_node!(Token::CharLiteral(b'c')),
+            literal_val_node!(Token::from("ABCD".to_string()))
+        );
 
-        )]),
-            7
-        ])
+        do_parse_test!(
+            [
+                "([12.4 'c' \"ABCD\"])",
+                nested_val_node_helper!([new_list_node]),
+                7
+            ],
+            [
+                "([12.4 'c' \"ABCD\"])",
+                nested_val_node_helper!([list_node]),
+                7
+            ]
+        )
     }
+
+    assert_fails_parser!(test_test, "(\"ABC\" 12)");
 }
