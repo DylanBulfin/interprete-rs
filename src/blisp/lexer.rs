@@ -76,6 +76,26 @@ impl NumLiteral {
             suffix: suffix.into(),
         }
     }
+
+    pub fn negative(&self) -> bool {
+        self.negative
+    }
+
+    pub fn int_part(&self) -> u64 {
+        self.int_part
+    }
+
+    pub fn float(&self) -> bool {
+        self.float
+    }
+
+    pub fn dec_part(&self) -> u64 {
+        self.dec_part
+    }
+
+    pub fn suffix(&self) -> LiteralSuffix {
+        self.suffix
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
