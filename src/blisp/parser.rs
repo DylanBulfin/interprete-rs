@@ -2,7 +2,10 @@ use std::rc::Rc;
 
 use crate::error::{InterpretError, InterpreteResult};
 
-use super::lexer::Token;
+use super::{
+    lexer::{NumLiteral, ReservedIdent, Token, Type},
+    macros::rule_node_helper,
+};
 
 // usize is the number of tokens "consumed"
 type ExecResult = InterpreteResult<(Node, usize)>;
@@ -19,25 +22,65 @@ pub enum Rule {
     Args,
 }
 
-// Examples:
-// `rule_node_helper(Expr, child)` creates a new Node::Rule with rule Expr and `child` as the
-//      only child
-// `rule_node_helper(Args, [child1, child2])` creates a new Node::Rule with rule Args and 2
-//      children: `child1, child2`
-macro_rules! rule_node_helper {
-    ($rule:ident, $child:ident) => {
-        {
-            Node::Rule(RuleNodeData::new(Rule::$rule, vec![Rc::new($child)]))
-        }
-    };
-    ($rule:ident, [$($child:expr),+]) => {
-        {
-            Node::Rule(RuleNodeData {
-                rule: Rule::$rule,
-                children: vec![
-                    $(Rc::new($child),)+
-                ],
-            })
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum ParseToken {
+    NumLiteral(NumLiteral),
+    CharLiteral(u8),
+    UnitLiteral,
+    StringLiteral(String),
+    Ident(String),
+    Type(Type),
+    Reserved(ReservedIdent),
+}
+
+impl From<NumLiteral> for ParseToken {
+    fn from(value: NumLiteral) -> Self {
+        Self::NumLiteral(value)
+    }
+}
+
+impl From<u8> for ParseToken {
+    fn from(value: u8) -> Self {
+        Self::CharLiteral(value)
+    }
+}
+
+impl From<String> for ParseToken {
+    fn from(value: String) -> Self {
+        Self::StringLiteral(value)
+    }
+}
+impl From<&str> for ParseToken {
+    fn from(value: &str) -> Self {
+        Self::StringLiteral(value.to_string())
+    }
+}
+
+impl From<Type> for ParseToken {
+    fn from(value: Type) -> Self {
+        Self::Type(value)
+    }
+}
+
+impl From<ReservedIdent> for ParseToken {
+    fn from(value: ReservedIdent) -> Self {
+        Self::Reserved(value)
+    }
+}
+
+impl TryFrom<Token> for ParseToken {
+    type Error = InterpretError;
+
+    fn try_from(value: Token) -> Result<Self, Self::Error> {
+        match value {
+            Token::NumLiteral(n) => Ok(Self::NumLiteral(n)),
+            Token::CharLiteral(c) => Ok(Self::CharLiteral(c)),
+            Token::UnitLiteral => Ok(Self::UnitLiteral),
+            Token::StringLiteral(s) => Ok(Self::StringLiteral(s)),
+            Token::Ident(i) => Ok(Self::Ident(i)),
+            Token::Type(t) => Ok(Self::Type(t)),
+            Token::Reserved(r) => Ok(Self::Reserved(r)),
+            t => Err(format!("{:?} is not a valid ParseToken", t).into()),
         }
     }
 }
@@ -85,10 +128,7 @@ pub fn parse_prog(tokens: &[Token]) -> ExecResult {
 fn parse_expr(tokens: &[Token]) -> ExecResult {
     if tokens[0] == Token::LParen {
         let (child, cnt) = parse_expr_body(&tokens[1..])?;
-        let node = rule_node_helper!(
-            Expr,
-            [Node::Leaf(Token::LParen), child, Node::Leaf(Token::RParen)]
-        );
+        let node = rule_node_helper!(Expr, [child]);
 
         if tokens[cnt + 1] == Token::RParen {
             Ok((node, cnt + 2))
@@ -135,7 +175,7 @@ fn parse_func_call(tokens: &[Token]) -> ExecResult {
     let func = tokens[0].assert_reserved()?;
 
     let (child, cnt) = parse_args(&tokens[1..])?;
-    let node = rule_node_helper!(FuncCall, [Node::Leaf(Token::Reserved(*func)), child]);
+    let node = rule_node_helper!(FuncCall, [Node::Leaf(ParseToken::from(*func)), child]);
 
     Ok((node, cnt + 1))
 }
@@ -148,7 +188,7 @@ fn parse_args(tokens: &[Token]) -> ExecResult {
 
             Ok(
                 if tokens.get(val_cnt).ok_or::<InterpretError>(
-                    "Unexpectedly reached end of input while trying to parse arguments".into(),
+                    "Unexpectedly reached end of input while parsing arguments".into(),
                 )? == &Token::RParen
                 {
                     (rule_node_helper!(Args, val), val_cnt)
@@ -159,7 +199,7 @@ fn parse_args(tokens: &[Token]) -> ExecResult {
             )
         }
         t => Err(format!(
-            "Unexpected token encountered while parsing expression body: {:?}",
+            "Unexpected token encountered while parsing arguments: {:?}",
             t
         )
         .into()),
@@ -182,7 +222,7 @@ fn parse_val(tokens: &[Token]) -> ExecResult {
         }
         // terminals specifies that we want to leave out LBrack and LParen
         val_tokens_pat!(terminals) => {
-            let child = Node::Leaf(tokens[0].clone());
+            let child = Node::Leaf(tokens[0].clone().try_into()?);
             let node = rule_node_helper!(Val, child);
 
             Ok((node, 1))
@@ -194,10 +234,7 @@ fn parse_val(tokens: &[Token]) -> ExecResult {
 fn parse_list(tokens: &[Token]) -> ExecResult {
     if tokens[0] == Token::LBrack {
         let (child, cnt) = parse_list_body(&tokens[1..])?;
-        let node = rule_node_helper!(
-            List,
-            [Node::Leaf(Token::LBrack), child, Node::Leaf(Token::RBrack)]
-        );
+        let node = rule_node_helper!(List, [child]);
 
         if tokens[cnt + 1] == Token::RBrack {
             Ok((node, cnt + 2))
@@ -246,21 +283,39 @@ pub struct Tree {
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub enum Node {
-    Leaf(Token),
+    Leaf(ParseToken),
     Rule(RuleNodeData),
 }
 
 impl Node {
-    pub fn new_rule_node(rule: Rule, children: Vec<Node>) -> Self {
-        Self::Rule(RuleNodeData {
-            rule,
-            children: children.into_iter().map(Rc::new).collect(),
-        })
+    //pub fn new_rule_node(rule: Rule, children: Vec<Node>) -> Self {
+    //    Self::Rule(RuleNodeData {
+    //        rule,
+    //        children: children.into_iter().map(Rc::new).collect(),
+    //    })
+    //}
+    pub fn is_val(&self) -> bool {
+        matches!(
+            self,
+            Self::Rule(RuleNodeData {
+                rule: Rule::Val,
+                ..
+            })
+        )
+    }
+    pub fn is_func_call(&self) -> bool {
+        matches!(
+            self,
+            Self::Rule(RuleNodeData {
+                rule: Rule::FuncCall,
+                ..
+            })
+        )
     }
 }
 
-impl From<Token> for Node {
-    fn from(value: Token) -> Self {
+impl From<ParseToken> for Node {
+    fn from(value: ParseToken) -> Self {
         Node::Leaf(value)
     }
 }
@@ -290,7 +345,7 @@ mod tests {
     use crate::{
         blisp::{
             lexer::{tokenize, NumLiteral, Token, Type},
-            macros::{assert_fails, assert_fails_parser},
+            macros::{assert_fails, assert_fails_parser, list_node_helper, val_node_helper},
             parser::parse_val,
         },
         error::InterpreTestResult,
@@ -317,10 +372,7 @@ mod tests {
             let node = $node;
             let node = rule_node_helper!(Val, node);
             let node = rule_node_helper!(ExprBody, node);
-            let node = rule_node_helper!(
-                Expr,
-                [Node::Leaf(Token::LParen), node, Node::Leaf(Token::RParen)]
-            );
+            let node = rule_node_helper!(Expr, node);
             let node = rule_node_helper!(Prog, node);
             node
         }};
@@ -328,38 +380,10 @@ mod tests {
             let node = Node::Leaf($tok);
             let node = rule_node_helper!(Val, node);
             let node = rule_node_helper!(ExprBody, node);
-            let node = rule_node_helper!(
-                Expr,
-                [Node::Leaf(Token::LParen), node, Node::Leaf(Token::RParen)]
-            );
+            let node = rule_node_helper!(Expr, node);
             let node = rule_node_helper!(Prog, node);
             node
         }};
-    }
-
-    // Expects a list of Val nodes as input
-    macro_rules! list_node_helper {
-        [$($item:expr),+] => {{
-            let mut vec: Vec<Node> = [$($item),+].into_iter().collect();
-            let mut node = Node::new_rule_node(Rule::ListBody, vec![vec.pop().unwrap()]);
-
-            for item in vec {
-                node = Node::new_rule_node(Rule::ListBody, vec![item, node]);
-            }
-
-            node = Node::new_rule_node(
-                Rule::List,
-                vec![Node::from(Token::LBrack), node, Node::from(Token::RBrack)]
-            );
-
-            node
-        }};
-    }
-
-    macro_rules! literal_val_node {
-        ($tok:expr) => {
-            Node::new_rule_node(Rule::Val, vec![Node::from($tok)])
-        };
     }
 
     macro_rules! do_parse_test {
@@ -406,96 +430,44 @@ mod tests {
         do_parse_test!(
             [
                 "(-1.24f)",
-                nested_val_node_helper!(Token::from(NumLiteral::new_float_with_suffix(
+                nested_val_node_helper!(ParseToken::from(NumLiteral::new_float_with_suffix(
                     1, 24, true, 'f'
                 ))),
                 3
             ],
             [
                 "(arstien)",
-                nested_val_node_helper!(Token::Ident("arstien".to_string())),
+                nested_val_node_helper!(ParseToken::Ident("arstien".to_string())),
                 3
             ],
             [
                 "(uint)",
-                nested_val_node_helper!(Token::Type(Type::UInt)),
+                nested_val_node_helper!(ParseToken::Type(Type::UInt)),
                 3
             ],
             [
                 "('a')",
-                nested_val_node_helper!(Token::CharLiteral(b'a')),
+                nested_val_node_helper!(ParseToken::CharLiteral(b'a')),
                 3
             ],
             [
                 "(\"teststr\")",
-                nested_val_node_helper!(Token::StringLiteral("teststr".to_string())),
+                nested_val_node_helper!(ParseToken::StringLiteral("teststr".to_string())),
                 3
             ],
-            ["(())", nested_val_node_helper!(Token::UnitLiteral), 3]
+            ["(())", nested_val_node_helper!(ParseToken::UnitLiteral), 3]
         )
     }
 
     #[test]
     fn parse_list_test() -> InterpreTestResult {
-        let list_node = Node::Rule(RuleNodeData {
-            rule: Rule::List,
-            children: [
-                Node::from(Token::LBrack),
-                Node::Rule(RuleNodeData {
-                    rule: Rule::ListBody,
-                    children: [
-                        Node::new_rule_node(
-                            Rule::Val,
-                            vec![Node::from(Token::from(NumLiteral::new_float(12, 4, false)))],
-                        ),
-                        Node::Rule(RuleNodeData {
-                            rule: Rule::ListBody,
-                            children: [
-                                Node::new_rule_node(
-                                    Rule::Val,
-                                    vec![Node::from(Token::CharLiteral(b'c'))],
-                                ),
-                                Node::Rule(RuleNodeData {
-                                    rule: Rule::ListBody,
-                                    children: [Node::new_rule_node(
-                                        Rule::Val,
-                                        vec![Node::from(Token::StringLiteral("ABCD".to_string()))],
-                                    )]
-                                    .map(Rc::new)
-                                    .to_vec(),
-                                }),
-                            ]
-                            .map(Rc::new)
-                            .to_vec(),
-                        }),
-                    ]
-                    .map(Rc::new)
-                    .to_vec(),
-                }),
-                Node::from(Token::RBrack),
-            ]
-            .map(Rc::new)
-            .to_vec(),
-        });
-
-        let new_list_node = list_node_helper!(
-            literal_val_node!(Token::from(NumLiteral::new_float(12, 4, false))),
-            literal_val_node!(Token::CharLiteral(b'c')),
-            literal_val_node!(Token::from("ABCD".to_string()))
+        let node1 = list_node_helper!(
+            val_node_helper!(ParseToken::from(NumLiteral::new_float(12, 4, false))),
+            val_node_helper!(ParseToken::CharLiteral(b'c')),
+            val_node_helper!(ParseToken::from("ABCD".to_string()))
         );
 
-        do_parse_test!(
-            [
-                "([12.4 'c' \"ABCD\"])",
-                nested_val_node_helper!([new_list_node]),
-                7
-            ],
-            [
-                "([12.4 'c' \"ABCD\"])",
-                nested_val_node_helper!([list_node]),
-                7
-            ]
-        )
+        do_parse_test!(["([12.4 'c' \"ABCD\"])", nested_val_node_helper!([node1]), 7])
     }
 
     assert_fails_parser!(test_test, "(\"ABC\" 12)");

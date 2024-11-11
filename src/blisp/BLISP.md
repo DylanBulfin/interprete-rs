@@ -184,9 +184,9 @@ well-defined I can do another quick pass. `<>` represent rules, `[]` represents 
 <Expr> => [LParen] <ExprBody> [RParen]
 <ExprBody> => <Val> | <FuncCall>
 
-<Val> => <ListVal> | <Expr> | [Ident] | [Type] | [CharLiteral] | [String] | [NumLiteral] | [UnitLiteral]
+<Val> => <List> | <Expr> | [Ident] | [Type] | [CharLiteral] | [String] | [NumLiteral] | [UnitLiteral]
 
-<ListVal> => [LBrack] <ListBody> [RBrack]
+<List> => [LBrack] <ListBody> [RBrack]
 <ListBody> => <Val> | <Val> <ListBody>
 
 <FuncCall> => [ReservedIdent] <Args>

@@ -1,6 +1,5 @@
 use crate::{
     error::{InterpretError, InterpreteResult},
-    test_macros,
 };
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -309,7 +308,7 @@ fn handle_char_literal(input: &[char]) -> InterpreteResult<u8> {
         .ok_or("Reached end of input unexpectedly while parsing a char literal")?
         != '\''
     {
-        Err("Did not find closing \' where expected".into())
+        Err("Did not find closing \' where expected while processing a char literal".into())
     } else {
         Ok(input[1] as u8)
     }

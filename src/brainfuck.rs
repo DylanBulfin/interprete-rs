@@ -1,4 +1,5 @@
 pub mod optimizations;
+pub mod test_macros;
 
 use crate::error::{InterpretError, InterpreteResult};
 use std::{
