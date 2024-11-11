@@ -4,11 +4,12 @@ use crate::error::{InterpretError, InterpreteResult};
 
 use super::{
     lexer::{NumLiteral, ReservedIdent, Token, Type},
-    macros::rule_node_helper,
+    macros::{rule_node_helper, val_pattern},
 };
 
 // usize is the number of tokens "consumed"
-type ExecResult = InterpreteResult<(Node, usize)>;
+type ParseResult = InterpreteResult<(Node, usize)>;
+type ProgParseResult = InterpreteResult<ParseTree>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Rule {
@@ -85,32 +86,7 @@ impl TryFrom<Token> for ParseToken {
     }
 }
 
-// Examples:
-// `val_tokens_pat()` is an inline pattern that matches any token that can start `Val`. This is
-//      used to check for `Val` in contexts where it is valid (e.g. `ExprBody`)
-// `val_token_pat(terminals)` includes only the terminal states (e.g. the tokens). This is for
-//      simplicity
-macro_rules! val_tokens_pat {
-    () => {
-        Token::LBrack
-            | Token::LParen
-            | Token::Ident(_)
-            | Token::Type(_)
-            | Token::CharLiteral(_)
-            | Token::StringLiteral(_)
-            | Token::NumLiteral(_)
-            | Token::UnitLiteral
-    };
-    (terminals) => {
-        Token::Ident(_)
-            | Token::Type(_)
-            | Token::CharLiteral(_)
-            | Token::StringLiteral(_)
-            | Token::NumLiteral(_)
-            | Token::UnitLiteral
-    };
-}
-pub fn parse_prog(tokens: &[Token]) -> ExecResult {
+pub fn parse_prog(tokens: &[Token]) -> ParseResult {
     let (child, cnt) = parse_expr(tokens)?;
     let node = rule_node_helper!(Prog, child);
 
@@ -125,7 +101,7 @@ pub fn parse_prog(tokens: &[Token]) -> ExecResult {
     }
 }
 
-fn parse_expr(tokens: &[Token]) -> ExecResult {
+fn parse_expr(tokens: &[Token]) -> ParseResult {
     if tokens[0] == Token::LParen {
         let (child, cnt) = parse_expr_body(&tokens[1..])?;
         let node = rule_node_helper!(Expr, [child]);
@@ -148,7 +124,7 @@ fn parse_expr(tokens: &[Token]) -> ExecResult {
     }
 }
 
-fn parse_expr_body(tokens: &[Token]) -> ExecResult {
+fn parse_expr_body(tokens: &[Token]) -> ParseResult {
     match &tokens[0] {
         Token::Reserved(_) => {
             let (child, cnt) = parse_func_call(&tokens[0..])?;
@@ -156,7 +132,7 @@ fn parse_expr_body(tokens: &[Token]) -> ExecResult {
 
             Ok((node, cnt))
         }
-        val_tokens_pat!() => {
+        val_pattern!() => {
             // We have <Val> and need to process it
             let (child, cnt) = parse_val(&tokens[0..])?;
             let node = rule_node_helper!(ExprBody, child);
@@ -171,7 +147,7 @@ fn parse_expr_body(tokens: &[Token]) -> ExecResult {
     }
 }
 
-fn parse_func_call(tokens: &[Token]) -> ExecResult {
+fn parse_func_call(tokens: &[Token]) -> ParseResult {
     let func = tokens[0].assert_reserved()?;
 
     let (child, cnt) = parse_args(&tokens[1..])?;
@@ -180,9 +156,9 @@ fn parse_func_call(tokens: &[Token]) -> ExecResult {
     Ok((node, cnt + 1))
 }
 
-fn parse_args(tokens: &[Token]) -> ExecResult {
+fn parse_args(tokens: &[Token]) -> ParseResult {
     match &tokens[0] {
-        val_tokens_pat!() => {
+        val_pattern!() => {
             // We have <Val> and need to process it
             let (val, val_cnt) = parse_val(tokens)?;
 
@@ -193,7 +169,7 @@ fn parse_args(tokens: &[Token]) -> ExecResult {
                 {
                     (rule_node_helper!(Args, val), val_cnt)
                 } else {
-                    let (tail, tail_cnt) = parse_args(&tokens[1..])?;
+                    let (tail, tail_cnt) = parse_args(&tokens[val_cnt..])?;
                     (rule_node_helper!(Args, [val, tail]), val_cnt + tail_cnt)
                 },
             )
@@ -206,7 +182,7 @@ fn parse_args(tokens: &[Token]) -> ExecResult {
     }
 }
 
-fn parse_val(tokens: &[Token]) -> ExecResult {
+fn parse_val(tokens: &[Token]) -> ParseResult {
     match &tokens[0] {
         Token::LBrack => {
             let (child, cnt) = parse_list(tokens)?;
@@ -221,7 +197,7 @@ fn parse_val(tokens: &[Token]) -> ExecResult {
             Ok((node, cnt))
         }
         // terminals specifies that we want to leave out LBrack and LParen
-        val_tokens_pat!(terminals) => {
+        val_pattern!(terminals) => {
             let child = Node::Leaf(tokens[0].clone().try_into()?);
             let node = rule_node_helper!(Val, child);
 
@@ -231,10 +207,10 @@ fn parse_val(tokens: &[Token]) -> ExecResult {
     }
 }
 
-fn parse_list(tokens: &[Token]) -> ExecResult {
+fn parse_list(tokens: &[Token]) -> ParseResult {
     if tokens[0] == Token::LBrack {
         let (child, cnt) = parse_list_body(&tokens[1..])?;
-        let node = rule_node_helper!(List, [child]);
+        let node = rule_node_helper!(List, [child.clone()]);
 
         if tokens[cnt + 1] == Token::RBrack {
             Ok((node, cnt + 2))
@@ -250,9 +226,9 @@ fn parse_list(tokens: &[Token]) -> ExecResult {
     }
 }
 
-fn parse_list_body(tokens: &[Token]) -> ExecResult {
+fn parse_list_body(tokens: &[Token]) -> ParseResult {
     match &tokens[0] {
-        val_tokens_pat!() => {
+        val_pattern!() => {
             // We have <Val> and need to process it
             let (val, val_cnt) = parse_val(tokens)?;
 
@@ -263,7 +239,7 @@ fn parse_list_body(tokens: &[Token]) -> ExecResult {
                 {
                     (rule_node_helper!(ListBody, val), val_cnt)
                 } else {
-                    let (tail, tail_cnt) = parse_list_body(&tokens[1..])?;
+                    let (tail, tail_cnt) = parse_list_body(&tokens[val_cnt..])?;
                     (rule_node_helper!(ListBody, [val, tail]), val_cnt + tail_cnt)
                 },
             )
@@ -277,8 +253,16 @@ fn parse_list_body(tokens: &[Token]) -> ExecResult {
 }
 
 // Want to create functions that "execute a rule" by gobbling tokens and return Nodes
-pub struct Tree {
-    base: Node,
+pub struct ParseTree {
+    prog: Node,
+}
+
+impl ParseTree {
+    pub fn init(input: Vec<Token>) -> InterpreteResult<Self> {
+        let (prog, _) = parse_prog(&input)?;
+
+        Ok(Self { prog })
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -288,12 +272,6 @@ pub enum Node {
 }
 
 impl Node {
-    //pub fn new_rule_node(rule: Rule, children: Vec<Node>) -> Self {
-    //    Self::Rule(RuleNodeData {
-    //        rule,
-    //        children: children.into_iter().map(Rc::new).collect(),
-    //    })
-    //}
     pub fn is_val(&self) -> bool {
         matches!(
             self,
@@ -332,20 +310,15 @@ impl RuleNodeData {
     }
 }
 
-impl Tree {}
-
-//impl Default for Tree {
-//    fn default() -> Self {
-//        Self::new()
-//    }
-//}
-
 #[cfg(test)]
 mod tests {
     use crate::{
         blisp::{
             lexer::{tokenize, NumLiteral, Token, Type},
-            macros::{assert_fails, assert_fails_parser, list_node_helper, val_node_helper},
+            macros::{
+                assert_fails, assert_fails_parser, func_call_node_helper, list_node_helper,
+                prog_node_helper, val_node_helper,
+            },
             parser::parse_val,
         },
         error::InterpreTestResult,
@@ -353,48 +326,16 @@ mod tests {
 
     use super::*;
 
-    fn fails() {
-        panic!("TestMessage");
-    }
-
-    assert_fails!(assert_fails_test => fails());
-    assert_fails!(assert_fails_message_test => fails(); "TestMessage");
-
-    // Creates a Prog node representing a program with a single Val in the main expression, e.g.
-    // `(12)` or `(["ABC", 12])`
-    //
-    // You could create a parse tree for `(12)` with
-    //      `nested_val_node_helper(Token::from(NumLiteral::new_int(12, false)))`
-    // For `(["ABC", 12])` you could use `nested_val_node_helper([list_node])` where
-    //      `list_node: Node::Rule(RuleNodeData { rule: Rule::List, .. })`
-    macro_rules! nested_val_node_helper {
-        ([$node:expr]) => {{
-            let node = $node;
-            let node = rule_node_helper!(Val, node);
-            let node = rule_node_helper!(ExprBody, node);
-            let node = rule_node_helper!(Expr, node);
-            let node = rule_node_helper!(Prog, node);
-            node
-        }};
-        ($tok:expr) => {{
-            let node = Node::Leaf($tok);
-            let node = rule_node_helper!(Val, node);
-            let node = rule_node_helper!(ExprBody, node);
-            let node = rule_node_helper!(Expr, node);
-            let node = rule_node_helper!(Prog, node);
-            node
-        }};
-    }
-
     macro_rules! do_parse_test {
         ($([$input:expr, $node:expr, $count:literal]),+) => {
             {
                 $(
-                    let input = $input.chars().collect();
-                    let tokens = tokenize(input)?;
-                    let node = $node;
+                    {
+                        let input = $input.chars().collect();
+                        let tokens = tokenize(input)?;
 
-                    assert_eq!(parse_prog(&tokens)?, (node, $count));
+                        assert_eq!(parse_prog(&tokens)?, ($node, $count));
+                    }
                 )+
 
                 Ok(())
@@ -402,60 +343,43 @@ mod tests {
         };
     }
 
-    //#[test]
-    //fn parse_val_test() -> InterpreTestResult {
-    //    let input1 = "(-1.24f)".chars().collect();
-    //    let tokens1 = tokenize(input1)?;
-    //    let node1 = val_node_helper!(Token::from(NumLiteral::new_float_with_suffix(
-    //        1, 24, true, 'f'
-    //    )));
-    //
-    //    let input2 = "(arstien)".chars().collect();
-    //    let tokens2 = tokenize(input2)?;
-    //    let node2 = val_node_helper!(Token::Ident("arstien".to_string()));
-    //
-    //    let input3 = "(uint)".chars().collect();
-    //    let tokens3 = tokenize(input3)?;
-    //    let node3 = val_node_helper!(Token::Type(Type::UInt));
-    //
-    //    assert_eq!(parse_prog(&tokens1)?, (node1, 3));
-    //    assert_eq!(parse_prog(&tokens2)?, (node2, 3));
-    //    assert_eq!(parse_prog(&tokens3)?, (node3, 3));
-    //
-    //    Ok(())
-    //}
-
     #[test]
     fn parse_literal_val_test() -> InterpreTestResult {
         do_parse_test!(
             [
                 "(-1.24f)",
-                nested_val_node_helper!(ParseToken::from(NumLiteral::new_float_with_suffix(
-                    1, 24, true, 'f'
+                prog_node_helper!(val_node_helper!(ParseToken::from(
+                    NumLiteral::new_float_with_suffix(1, 24, true, 'f')
                 ))),
                 3
             ],
             [
                 "(arstien)",
-                nested_val_node_helper!(ParseToken::Ident("arstien".to_string())),
+                prog_node_helper!(val_node_helper!(ParseToken::Ident("arstien".to_string()))),
                 3
             ],
             [
                 "(uint)",
-                nested_val_node_helper!(ParseToken::Type(Type::UInt)),
+                prog_node_helper!(val_node_helper!(ParseToken::Type(Type::UInt))),
                 3
             ],
             [
                 "('a')",
-                nested_val_node_helper!(ParseToken::CharLiteral(b'a')),
+                prog_node_helper!(val_node_helper!(ParseToken::CharLiteral(b'a'))),
                 3
             ],
             [
                 "(\"teststr\")",
-                nested_val_node_helper!(ParseToken::StringLiteral("teststr".to_string())),
+                prog_node_helper!(val_node_helper!(ParseToken::StringLiteral(
+                    "teststr".to_string()
+                ))),
                 3
             ],
-            ["(())", nested_val_node_helper!(ParseToken::UnitLiteral), 3]
+            [
+                "(())",
+                prog_node_helper!(val_node_helper!(ParseToken::UnitLiteral)),
+                3
+            ]
         )
     }
 
@@ -466,9 +390,64 @@ mod tests {
             val_node_helper!(ParseToken::CharLiteral(b'c')),
             val_node_helper!(ParseToken::from("ABCD".to_string()))
         );
+        let node2 = list_node_helper!(
+            val_node_helper!(ParseToken::from(NumLiteral::new_float(14, 6, true))),
+            val_node_helper!([list_node_helper!(
+                val_node_helper!(ParseToken::from(NumLiteral::new_float(12, 4, false))),
+                val_node_helper!(ParseToken::CharLiteral(b'c')),
+                val_node_helper!(ParseToken::from("ABCD".to_string()))
+            )]),
+            val_node_helper!(ParseToken::UnitLiteral)
+        );
 
-        do_parse_test!(["([12.4 'c' \"ABCD\"])", nested_val_node_helper!([node1]), 7])
+        do_parse_test!(
+            [
+                "([12.4 'c' \"ABCD\"])",
+                prog_node_helper!(val_node_helper!([node1])),
+                7
+            ],
+            [
+                "([-14.6 [12.4 'c' \"ABCD\"] ()])",
+                prog_node_helper!(val_node_helper!([node2])),
+                11
+            ]
+        )
     }
 
-    assert_fails_parser!(test_test, "(\"ABC\" 12)");
+    #[test]
+    fn parse_func_call_test() -> InterpreTestResult {
+        let node1 = func_call_node_helper!(
+            Add,
+            [
+                val_node_helper!(ParseToken::from("ASTR")),
+                val_node_helper!(ParseToken::from(b'a')),
+                val_node_helper!(ParseToken::from(NumLiteral::new_int_with_suffix(
+                    1, true, 'u'
+                )))
+            ]
+        );
+        let node2 = func_call_node_helper!(
+            ToString,
+            [
+                val_node_helper!(ParseToken::from("ANTS")),
+                val_node_helper!([list_node_helper!(
+                    val_node_helper!(ParseToken::from("ASTR")),
+                    val_node_helper!(ParseToken::from(b'a')),
+                    val_node_helper!(ParseToken::from(NumLiteral::new_int_with_suffix(
+                        1, true, 'u'
+                    )))
+                )]),
+                val_node_helper!(ParseToken::from(b'b'))
+            ]
+        );
+
+        do_parse_test!(
+            ["(+ \"ASTR\" 'a' -1u)", prog_node_helper!(node1), 6],
+            [
+                "(tostring \"ANTS\" [\"ASTR\" 'a' -1u] 'b')",
+                prog_node_helper!(node2),
+                10
+            ]
+        )
+    }
 }

@@ -1,6 +1,4 @@
-use crate::{
-    error::{InterpretError, InterpreteResult},
-};
+use crate::error::{InterpretError, InterpreteResult};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum LiteralSuffix {
@@ -170,7 +168,6 @@ pub enum Type {
     UInt,
     Float,
     List(Box<Type>),
-    Tuple(Box<Type>, Box<Type>),
     Unit,
     Char,
     Bool,
@@ -296,6 +293,12 @@ impl From<&str> for Token {
 impl From<String> for Token {
     fn from(value: String) -> Self {
         Self::StringLiteral(value)
+    }
+}
+
+impl From<u8> for Token {
+    fn from(value: u8) -> Self {
+        Self::CharLiteral(value)
     }
 }
 
@@ -839,7 +842,27 @@ mod tests {
             ]
         );
 
+        let (input2, output2) = (
+            "(tostring \"ANTS\" [\"ASTR\" 'a' -1u] 'b')"
+                .chars()
+                .collect(),
+            [
+                Token::LParen,
+                ReservedIdent::ToString.into(),
+                Token::from("ANTS"),
+                Token::LBrack,
+                Token::from("ASTR"),
+                Token::from(b'a'),
+                Token::from(NumLiteral::new_int_with_suffix(1, true, 'u')),
+                Token::RBrack,
+                Token::from(b'b'),
+                Token::RParen,
+                Token::EOF,
+            ],
+        );
+
         assert_eq!(tokenize(input1)?, output1);
+        assert_eq!(tokenize(input2)?, output2);
 
         Ok(())
     }
@@ -857,6 +880,31 @@ mod tests {
                 Token::Ident("iaerkds9".to_string()),
                 Token::Ident("iaernds".to_string()),
                 Token::LBrack,
+                Token::RParen,
+                Token::EOF,
+            ],
+        );
+
+        assert_eq!(tokenize(input1)?, output1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn list_test() -> InterpreTestResult {
+        let (input1, output1) = (
+            "([-14.6 [12.4 'c' \"ABCD\"] ()])".chars().collect(),
+            [
+                Token::LParen,
+                Token::LBrack,
+                Token::from(NumLiteral::new_float(14, 6, true)),
+                Token::LBrack,
+                Token::from(NumLiteral::new_float(12, 4, false)),
+                Token::from(b'c'),
+                Token::from("ABCD"),
+                Token::RBrack,
+                Token::UnitLiteral,
+                Token::RBrack,
                 Token::RParen,
                 Token::EOF,
             ],

@@ -57,6 +57,28 @@ macro_rules! assert_fails_parser {
     };
 }
 
+// Pattern that represents the valid tokens in Val rule
+macro_rules! val_pattern {
+    () => {
+        Token::LBrack
+            | Token::LParen
+            | Token::Ident(_)
+            | Token::Type(_)
+            | Token::CharLiteral(_)
+            | Token::StringLiteral(_)
+            | Token::NumLiteral(_)
+            | Token::UnitLiteral
+    };
+    (terminals) => {
+        Token::Ident(_)
+            | Token::Type(_)
+            | Token::CharLiteral(_)
+            | Token::StringLiteral(_)
+            | Token::NumLiteral(_)
+            | Token::UnitLiteral
+    };
+}
+
 // Allows more efficient rule node creation than a method since it avoids creating and
 // immediately iterating/mapping a collection
 macro_rules! rule_node_helper {
@@ -79,12 +101,12 @@ macro_rules! rule_node_helper {
 
 // Creates a Val node with Node::Leaf($tok) as the sole child
 macro_rules! val_node_helper {
-    ([$node:expr]) => {
+    ([$node:expr]) => {{
         rule_node_helper!(Val, [$node])
-    };
-    ($tok:expr) => {
+    }};
+    ($tok:expr) => {{
         rule_node_helper!(Val, [Node::from($tok)])
-    };
+    }};
 }
 
 // Creates a List node with the specified nodes as members. Input nodes must be of type
@@ -135,19 +157,18 @@ macro_rules! func_call_node_helper {
 // Create a full program node from a single base node. Needs a node of a type that can
 // exist in the ExprBody context, e.g. either a Val node or FuncCall node
 macro_rules! prog_node_helper {
-    ($node:expr) => {
-        if !node.is_val() || !node.is_func_call {
-            panic!("prog_node_helper only supports Val or FuncCall nodes")
-        }
+    ($node:expr) => {{
         let node = $node;
+
+        if !node.is_val() && !node.is_func_call() {
+            panic!("prog_node_helper only supports Val or FuncCall nodes");
+        }
+
         let node = rule_node_helper!(ExprBody, node);
-        let node = rule_node_helper!(
-            Expr,
-            [Node::Leaf(Token::LParen), node, Node::Leaf(Token::RParen)]
-        );
+        let node = rule_node_helper!(Expr, node);
         let node = rule_node_helper!(Prog, node);
         node
-    };
+    }};
 }
 
 #[cfg(test)]
@@ -188,6 +209,46 @@ mod tests {
         "(['a' 12 \"ART\")";
         "Unexpected token encountered while parsing expression body: RParen"
     );
+
+    #[test]
+    fn val_pattern_test() {
+        let valid_toks = [
+            Token::NumLiteral(NumLiteral::new_float(12, 4, false)),
+            Token::CharLiteral(b'a'),
+            Token::UnitLiteral,
+            Token::StringLiteral("AB".to_string()),
+            Token::Ident("identifier".to_string()),
+            Token::Type(Type::List(Box::new(Type::UInt))),
+            Token::LParen,
+            Token::LBrack,
+        ];
+        let terminal_toks = [
+            Token::NumLiteral(NumLiteral::new_float(12, 4, false)),
+            Token::CharLiteral(b'a'),
+            Token::UnitLiteral,
+            Token::StringLiteral("AB".to_string()),
+            Token::Ident("identifier".to_string()),
+            Token::Type(Type::List(Box::new(Type::UInt))),
+        ];
+        let invalid_toks = [
+            Token::RParen,
+            Token::RBrack,
+            Token::EOF,
+            Token::Reserved(ReservedIdent::Add),
+        ];
+
+        for tok in valid_toks.into_iter() {
+            assert!(matches!(tok, val_pattern!()));
+        }
+
+        for tok in terminal_toks.into_iter() {
+            assert!(matches!(tok, val_pattern!(terminals)));
+        }
+
+        for tok in invalid_toks.into_iter() {
+            assert!(!matches!(tok, val_pattern!()));
+        }
+    }
 
     #[test]
     fn rule_node_helper_test() -> InterpreTestResult {
@@ -398,6 +459,66 @@ mod tests {
 
         Ok(())
     }
+
+    // This macro panics if you pass in an invalid Node type
+    assert_fails!(prog_node_invalid_test => prog_node_helper!(Node::Leaf(ParseToken::UnitLiteral)));
+
+    #[test]
+    fn prog_node_helper_test() -> InterpreTestResult {
+        let node1 = prog_node_helper!(val_node_helper!(ParseToken::UnitLiteral));
+        let node2 = prog_node_helper!(val_node_helper!(ParseToken::from("ABC")));
+        let node3 = prog_node_helper!(func_call_node_helper!(
+            Add,
+            [
+                val_node_helper!(ParseToken::from(NumLiteral::new_float(13, 5, false))),
+                val_node_helper!(ParseToken::CharLiteral(b'd')),
+                val_node_helper!([get_test_list_node()])
+            ]
+        ));
+
+        let exp1 = Node::Rule(RuleNodeData::new(
+            Rule::Prog,
+            vec![Rc::new(Node::Rule(RuleNodeData::new(
+                Rule::Expr,
+                vec![Rc::new(Node::Rule(RuleNodeData::new(
+                    Rule::ExprBody,
+                    vec![Rc::new(Node::Rule(RuleNodeData::new(
+                        Rule::Val,
+                        vec![Rc::new(Node::Leaf(ParseToken::UnitLiteral))],
+                    )))],
+                )))],
+            )))],
+        ));
+        let exp2 = Node::Rule(RuleNodeData::new(
+            Rule::Prog,
+            vec![Rc::new(Node::Rule(RuleNodeData::new(
+                Rule::Expr,
+                vec![Rc::new(Node::Rule(RuleNodeData::new(
+                    Rule::ExprBody,
+                    vec![Rc::new(Node::Rule(RuleNodeData::new(
+                        Rule::Val,
+                        vec![Rc::new(Node::Leaf(ParseToken::from("ABC")))],
+                    )))],
+                )))],
+            )))],
+        ));
+        let exp3 = Node::Rule(RuleNodeData::new(
+            Rule::Prog,
+            vec![Rc::new(Node::Rule(RuleNodeData::new(
+                Rule::Expr,
+                vec![Rc::new(Node::Rule(RuleNodeData::new(
+                    Rule::ExprBody,
+                    vec![Rc::new(get_test_func_call_node())],
+                )))],
+            )))],
+        ));
+
+        assert_eq!(node1, exp1);
+        assert_eq!(node2, exp2);
+        assert_eq!(node3, exp3);
+
+        Ok(())
+    }
 }
 
 // This macro exposes a list of macros to the rest of this crate. This is so that I can
@@ -416,8 +537,11 @@ crate_publish_macros!(
     assert_fails,
     assert_fails_lexer,
     assert_fails_parser,
+    val_pattern,
     rule_node_helper,
     val_node_helper,
     list_node_helper,
+    prog_node_helper,
+    func_call_node_helper,
     import,
 );
