@@ -171,6 +171,28 @@ macro_rules! prog_node_helper {
     }};
 }
 
+// Pattern to match a rule, with optional binding for children
+macro_rules! rule_node_pattern {
+    ($rule:ident $(=> $bind:ident)?) => {
+        $($bind @)? Node::Rule(RuleNodeData {
+            rule: Rule::$rule,
+            ..
+        })
+    };
+    ($rule:ident; $($tail:tt)*) => {
+        Node::Rule(RuleNodeData {
+            rule: Rule::$rule,
+            children: $($tail)*,
+        })
+    };
+}
+
+macro_rules! leaf_node_pattern {
+    ($tok:ident $($tail:tt)*) => {
+        Node::Leaf(ParseToken::$tok $($tail)*)
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
@@ -534,5 +556,7 @@ crate_publish_macros!(
     list_node_helper,
     prog_node_helper,
     func_call_node_helper,
+    leaf_node_pattern,
+    rule_node_pattern,
     import,
 );

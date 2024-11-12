@@ -9,7 +9,6 @@ use super::{
 
 // usize is the number of tokens "consumed"
 type ParseResult = InterpreteResult<(Node, usize)>;
-type ProgParseResult = InterpreteResult<ParseTree>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Rule {
@@ -300,8 +299,8 @@ impl From<ParseToken> for Node {
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct RuleNodeData {
-    rule: Rule,
-    children: Vec<Node>,
+    pub(crate) rule: Rule,
+    pub(crate) children: Vec<Node>,
 }
 
 impl RuleNodeData {

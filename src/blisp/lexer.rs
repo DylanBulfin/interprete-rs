@@ -24,11 +24,11 @@ impl From<char> for LiteralSuffix {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct NumLiteral {
-    negative: bool,
-    int_part: u64,
-    float: bool,
-    dec_part: u64,
-    suffix: LiteralSuffix,
+    pub(crate) negative: bool,
+    pub(crate) int_part: u64,
+    pub(crate) float: bool,
+    pub(crate) dec_part: u64,
+    pub(crate) suffix: LiteralSuffix,
 }
 
 impl NumLiteral {
@@ -74,6 +74,26 @@ impl NumLiteral {
             negative,
             float: true,
             suffix: suffix.into(),
+        }
+    }
+
+    pub fn to_f64_checked(self) -> InterpreteResult<f64> {
+        if !self.float && self.suffix != LiteralSuffix::Float {
+            return Err(format!("Unable to convert NumLiteral {:?} to f64", self).into());
+        }
+
+        let val = if self.dec_part == 0 {
+            self.int_part as f64
+        } else {
+            let mag = self.dec_part.ilog10();
+
+            self.int_part as f64 + ((self.dec_part as f64) / (10u64.pow(mag + 1) as f64))
+        };
+
+        if self.negative {
+            Ok(-val)
+        } else {
+            Ok(val)
         }
     }
 
@@ -934,4 +954,5 @@ mod tests {
 
         Ok(())
     }
+
 }
