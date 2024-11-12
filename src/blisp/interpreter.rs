@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    blisp::macros::leaf_node_pattern,
+    blisp::{functions::eval_function, macros::leaf_node_pattern},
     error::{InterpreTestResult, InterpretError, InterpreteResult},
 };
 
@@ -183,6 +183,89 @@ impl Value {
     pub fn is_list(&self) -> bool {
         self.ty == AbstractType::List
     }
+
+    /// Only defined for `Number` typed vars
+    pub fn try_as_number(&self) -> InterpreteResult<u64> {
+        if let ValueData::Number(n) = self.val {
+            Ok(n)
+        } else {
+            Err(format!("Tried to convert non-number value to number: {:?}", self).into())
+        }
+    }
+
+    /// Only defined for `Number` and `NegNumber` typed vars
+    pub fn try_as_negnumber(&self) -> InterpreteResult<i64> {
+        if let ValueData::Number(n) = self.val {
+            // TODO check bounds
+            Ok(n as i64)
+        } else if let ValueData::NegNumber(n) = self.val {
+            Ok(n)
+        } else {
+            Err(format!("Tried to convert invalid value to negnumber: {:?}", self).into())
+        }
+    }
+
+    /// Only defined for `Number`, `NegNumber`, and `int` typed vars
+    pub fn try_as_int(&self) -> InterpreteResult<i64> {
+        match self.val {
+            ValueData::Number(n) => Ok(n as i64),
+            ValueData::NegNumber(n) => Ok(n),
+            ValueData::Int(n) => Ok(n),
+            _ => Err(format!("Tried to convert invalid value to int: {:?}", self).into()),
+        }
+    }
+
+    /// Only defined for `Number` and `uint` typed vars
+    pub fn try_as_uint(&self) -> InterpreteResult<u64> {
+        match self.val {
+            ValueData::Number(n) => Ok(n),
+            ValueData::UInt(n) => Ok(n),
+            _ => Err(format!("Tried to convert invalid value to uint: {:?}", self).into()),
+        }
+    }
+
+    /// Only defined for `Number`, `NegNumber`, and `float` type vars
+    pub fn try_as_float(&self) -> InterpreteResult<f64> {
+        match self.val {
+            ValueData::Number(n) => Ok(n as f64),
+            ValueData::NegNumber(n) => Ok(n as f64),
+            ValueData::Float(f) => Ok(f),
+            _ => Err(format!("Tried to convert invalid value to float: {:?}", self).into()),
+        }
+    }
+
+    /// Only defined for `List` types (Abstract list type should never be around at this
+    /// point)
+    pub fn try_as_list(&self) -> InterpreteResult<Vec<Value>> {
+        match &self.val {
+            ValueData::List(vals) => Ok(vals.clone()),
+            _ => Err(format!("Tried to convert invalid value to list: {:?}", self).into()),
+        }
+    }
+
+    /// Only defined for `Unit` type
+    pub fn try_as_unit(&self) -> InterpreteResult<()> {
+        match &self.val {
+            ValueData::Unit => Ok(()),
+            _ => Err(format!("Tried to convert invalid value to unit: {:?}", self).into()),
+        }
+    }
+
+    /// Only defined for `Char` type
+    pub fn try_as_char(&self) -> InterpreteResult<u8> {
+        match self.val {
+            ValueData::Char(c) => Ok(c),
+            _ => Err(format!("Tried to convert invalid value to char: {:?}", self).into()),
+        }
+    }
+
+    /// Only defined for `Bool` type
+    pub fn try_as_bool(&self) -> InterpreteResult<bool> {
+        match self.val {
+            ValueData::Bool(b) => Ok(b),
+            _ => Err(format!("Tried to convert invalid value to bool: {:?}", self).into()),
+        }
+    }
 }
 
 impl From<u8> for Value {
@@ -307,16 +390,65 @@ impl TryFrom<ParseToken> for Value {
     }
 }
 
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+/// This holds the type of an argument. When executing a function we first check for the
+/// accepted arguments for the function via crate::blisp::functions::get_arg_types
 pub enum ArgumentType {
+    /// Specifies a value type (may include variables as well).
     Value,
     Type,
+    // This indicates an ident is required, as in `(set <ident> 3)`
     Ident,
 }
 
+#[derive(PartialEq, Clone, Debug)]
 pub enum Argument {
     Value(Value),
     Type(Type),
     Ident(String),
+}
+
+impl From<Value> for Argument {
+    fn from(value: Value) -> Self {
+        Self::Value(value)
+    }
+}
+
+impl Argument {
+    pub fn get_type(&self) -> ArgumentType {
+        match self {
+            Self::Value(_) => ArgumentType::Value,
+            Self::Type(_) => ArgumentType::Type,
+            Self::Ident(_) => ArgumentType::Ident,
+        }
+    }
+
+    pub fn is_val(&self) -> bool {
+        matches!(self, Argument::Value(_))
+    }
+
+    pub fn try_get_val(&self) -> InterpreteResult<&Value> {
+        if let Self::Value(v) = self {
+            Ok(v)
+        } else {
+            Err(format!("Attempted to get Value from non-Value argument {:?}", self).into())
+        }
+    }
+
+    /// If this is a Value-type argument get its associated type
+    pub fn try_get_val_type(&self) -> InterpreteResult<AbstractType> {
+        let ty = self.try_get_val()?.ty.clone();
+
+        match ty {
+            AbstractType::ConcreteType(ct) => Ok(ct.into()),
+            AbstractType::List => Err(format!(
+                "Unexpectedly found abstract list type when parsing argument {:?}",
+                self
+            )
+            .into()),
+            t => Ok(t),
+        }
+    }
 }
 
 pub struct Func {
@@ -434,12 +566,14 @@ fn eval_func_call_node(node: Node, state: &mut State) -> InterpreteResult<Value>
     if let rule_node_pattern!(FuncCall; mut children) = node {
         assert!(children.len() == 2);
 
+        let args_node = children.pop().unwrap();
+
         match children.pop().unwrap() {
             leaf_node_pattern!(Reserved(rsv)) => {
                 let func = rsv;
-                let args = eval_args_node(children.pop().unwrap(), state, func);
+                let args = eval_args_node(args_node, state)?;
 
-                unimplemented!()
+                eval_function(func, args)
             }
             n => Err(format!("Expected function name, found {:?}", n).into()),
         }
@@ -448,12 +582,30 @@ fn eval_func_call_node(node: Node, state: &mut State) -> InterpreteResult<Value>
     }
 }
 
-fn eval_args_node(
-    node: Node,
-    state: &mut State,
-    func: ReservedIdent,
-) -> InterpreteResult<Argument> {
-    unimplemented!()
+fn eval_args_node(node: Node, state: &mut State) -> InterpreteResult<Vec<Argument>> {
+    if let rule_node_pattern!(Args; mut children) = node {
+        if children.len() == 1 {
+            // Reached terminal state, nearly done
+            match children.pop().unwrap() {
+                rule_node_pattern!(Val => node) => {
+                    Ok([eval_val_node(node, state)?.into()].to_vec())
+                }
+                n => Err(format!("Expected Val while parsing ListBody, found: {:?}", n).into()),
+            }
+        } else {
+            assert!(children.len() == 2);
+
+            let mut tail = eval_args_node(children.pop().unwrap(), state)?;
+            let val = eval_val_node(children.pop().unwrap(), state)?;
+
+            let mut res = vec![val.into()];
+            res.append(&mut tail);
+
+            Ok(res)
+        }
+    } else {
+        Err(format!("Expected ListBody node, found: {:?}", node).into())
+    }
 }
 
 fn eval_list_node(node: Node, state: &mut State) -> InterpreteResult<Value> {

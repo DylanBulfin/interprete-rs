@@ -153,7 +153,8 @@ pub enum ReservedIdent {
     Concat,
     Prepend,
     Take,
-    Split,
+    // Removed until/unless tuple type is reintroduced
+    //Split,
 
     // Convenience
     Eval,
@@ -187,7 +188,6 @@ impl TryFrom<&str> for ReservedIdent {
             "concat" => Ok(Self::Concat),
             "prepend" => Ok(Self::Prepend),
             "take" => Ok(Self::Take),
-            "split" => Ok(Self::Split),
             "eval" => Ok(Self::Eval),
             "tostring" => Ok(Self::ToString),
             _ => Err("Not a valid reserved identifier".into()),
@@ -845,7 +845,7 @@ mod tests {
     #[test]
     fn reserved_ident_test() -> InterpreTestResult {
         let (input1, output1) = (
-            "(add + sub - div / mul * write read if while eq neq leq geq lt gt and or set init def concat prepend take split eval tostring)".chars().collect(),
+            "(add + sub - div / mul * write read if while eq neq leq geq lt gt and or set init def concat prepend take eval tostring)".chars().collect(),
             [
                 Token::LParen,
                 ReservedIdent::Add.into(),
@@ -874,7 +874,6 @@ mod tests {
                 ReservedIdent::Concat.into(),
                 ReservedIdent::Prepend.into(),
                 ReservedIdent::Take.into(),
-                ReservedIdent::Split.into(),
                 ReservedIdent::Eval.into(),
                 ReservedIdent::ToString.into(),
                 Token::RParen,
