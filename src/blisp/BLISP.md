@@ -69,10 +69,6 @@ same type and they can't be coerced to the same type, the list declaration is in
 
 #### (2-)Tuples
 Removing tuples from the spec for now. They create all sorts of annoying edge cases and aren't that useful anyway
-I realized it would create an annoying edge case to have non-statement objects enclosed by parentheses, so for now
-tuples can only be created with the tuple function: `(, <item1>, <item2)`
-- `(, 1 'a')` is `tuple<int, char>`
-- `(, true [1, 2, 3u])` is `tuple<bool, list<uint>>`
 
 ### Type Coercion 
 To allow for coercion we must define a couple abstract types and a hierarchy. To start we should look at which type 

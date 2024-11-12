@@ -10,7 +10,7 @@ use crate::{
 
 use super::{
     lexer::{LiteralSuffix, NumLiteral, ReservedIdent, Type},
-    macros::rule_node_pattern,
+    macros::{list_value_helper, rule_node_pattern},
     parser::{Node, ParseToken, ParseTree, Rule, RuleNodeData},
 };
 
@@ -73,6 +73,80 @@ pub enum AbstractType {
     ConcreteType(Type),
     Number,
     NegNumber,
+    List,
+}
+
+impl AbstractType {
+    pub fn coerce_types(
+        first: AbstractType,
+        second: AbstractType,
+    ) -> InterpreteResult<AbstractType> {
+        match &first {
+            ty @ AbstractType::List => {
+                if matches!(second, AbstractType::ConcreteType(Type::List(_)))
+                    || second == AbstractType::List
+                {
+                    Ok(second)
+                } else {
+                    Err(format!("Unable to coerce list into {:?}", ty).into())
+                }
+            }
+            ty @ AbstractType::Number => {
+                if second == AbstractType::Number
+                    || second == AbstractType::NegNumber
+                    || second == AbstractType::ConcreteType(Type::Int)
+                    || second == AbstractType::ConcreteType(Type::UInt)
+                    || second == AbstractType::ConcreteType(Type::Float)
+                {
+                    Ok(second)
+                } else {
+                    Err(format!("Unable to coerce Number into {:?}", ty).into())
+                }
+            }
+            ty @ AbstractType::NegNumber => {
+                if second == AbstractType::NegNumber
+                    || second == AbstractType::ConcreteType(Type::Int)
+                    || second == AbstractType::ConcreteType(Type::Float)
+                {
+                    Ok(second)
+                } else if second == AbstractType::Number {
+                    Ok(first)
+                } else {
+                    Err(format!("Unable to coerce NegNumber into {:?}", ty).into())
+                }
+            }
+            AbstractType::ConcreteType(ct) => match &second {
+                AbstractType::ConcreteType(ct2) => {
+                    if ct == ct2 {
+                        Ok(second)
+                    } else {
+                        Err(format!("Unable to coerce {:?} into {:?}", ct, ct2).into())
+                    }
+                }
+                ty @ AbstractType::Number => {
+                    if ct == &Type::Int || ct == &Type::UInt || ct == &Type::Float {
+                        Ok(first)
+                    } else {
+                        Err(format!("Unable to coerce Number into {:?}", ty).into())
+                    }
+                }
+                ty @ AbstractType::NegNumber => {
+                    if ct == &Type::Int || ct == &Type::Float {
+                        Ok(first)
+                    } else {
+                        Err(format!("Unable to coerce NegNumber into {:?}", ty).into())
+                    }
+                }
+                ty @ AbstractType::List => {
+                    if matches!(ct, Type::List(_)) {
+                        Ok(first)
+                    } else {
+                        Err(format!("Unable to coerce List into {:?}", ty).into())
+                    }
+                }
+            },
+        }
+    }
 }
 
 impl From<Type> for AbstractType {
@@ -104,6 +178,10 @@ pub struct Value {
 impl Value {
     pub fn new(ty: AbstractType, val: ValueData) -> Self {
         Self { ty, val }
+    }
+
+    pub fn is_list(&self) -> bool {
+        self.ty == AbstractType::List
     }
 }
 
@@ -235,10 +313,6 @@ pub enum ArgumentType {
     Ident,
 }
 
-//pub fn get_arg_types(func: ReservedIdent) -> Vec<AbstractType> {
-//
-//}
-
 pub enum Argument {
     Value(Value),
     Type(Type),
@@ -352,7 +426,7 @@ fn eval_val_node(node: Node, state: &mut State) -> InterpreteResult<Value> {
             n => Err(format!("Encountered invalid node when evaluating Val: {:?}", n).into()),
         }
     } else {
-        Err(format!("Expected Expr node, found: {:?}", node).into())
+        Err(format!("Expected Val node, found: {:?}", node).into())
     }
 }
 
@@ -370,7 +444,7 @@ fn eval_func_call_node(node: Node, state: &mut State) -> InterpreteResult<Value>
             n => Err(format!("Expected function name, found {:?}", n).into()),
         }
     } else {
-        Err(format!("Expected Expr node, found: {:?}", node).into())
+        Err(format!("Expected FuncCall node, found: {:?}", node).into())
     }
 }
 
@@ -389,14 +463,116 @@ fn eval_list_node(node: Node, state: &mut State) -> InterpreteResult<Value> {
     }) = node
     {
         assert!(children.len() == 1);
-        eval_list_body_node(children.pop().unwrap(), state)
+        if let Value {
+            val: ValueData::List(vals),
+            ..
+        } = eval_list_body_node(children.pop().unwrap(), state)?
+        {
+            let ty = check_list_type(vals.iter().collect())?;
+
+            Ok(Value {
+                ty: Type::List(Box::new(ty)).into(),
+                val: ValueData::List(vals),
+            })
+        } else {
+            Err("Malformed ListBody result".into())
+        }
     } else {
-        Err(format!("Expected Expr node, found: {:?}", node).into())
+        Err(format!("Expected Args node, found: {:?}", node).into())
     }
 }
 
 fn eval_list_body_node(node: Node, state: &mut State) -> InterpreteResult<Value> {
-    unimplemented!()
+    if let rule_node_pattern!(ListBody; mut children) = node {
+        if children.len() == 1 {
+            // Reached terminal state, nearly done
+            match children.pop().unwrap() {
+                rule_node_pattern!(Val => node) => {
+                    Ok(list_value_helper![eval_val_node(node, state)?])
+                }
+                n => Err(format!("Expected Val while parsing ListBody, found: {:?}", n).into()),
+            }
+        } else {
+            assert!(children.len() == 2);
+
+            let tail = eval_list_body_node(children.pop().unwrap(), state)?;
+            let val = eval_val_node(children.pop().unwrap(), state)?;
+
+            if let Value {
+                val: ValueData::List(mut vec),
+                ..
+            } = tail
+            {
+                let mut res = vec![val];
+                res.append(&mut vec);
+
+                Ok(Value::new(AbstractType::List, ValueData::List(res)))
+            } else {
+                Err(format!("Malformed ListBody result: {:?}", tail).into())
+            }
+        }
+    } else {
+        Err(format!("Expected ListBody node, found: {:?}", node).into())
+    }
+}
+
+fn check_list_type(vec: Vec<&Value>) -> InterpreteResult<Type> {
+    let init = vec[0];
+
+    let ty = vec
+        .iter()
+        .map(|v| v.ty.clone())
+        .try_fold(init.ty.clone(), AbstractType::coerce_types)?;
+
+    match ty {
+        AbstractType::Number | AbstractType::NegNumber => Ok(Type::Int),
+        AbstractType::ConcreteType(ct) => Ok(ct),
+        AbstractType::List => {
+            // Need to recursively find the type of the nested lists
+            if let Value {
+                val: ValueData::List(vals),
+                ..
+            } = init
+            {
+                let init = check_list_type(vals.iter().collect())?;
+
+                // Fold over sublists of current list, trying to match types
+                let ty = vec
+                    .iter()
+                    .map(|&v| {
+                        if let Value {
+                            val: ValueData::List(_),
+                            ..
+                        } = v
+                        {
+                            AbstractType::ConcreteType(
+                                check_list_type(vals.iter().collect())
+                                    .expect("Something went wrong when parsing sublist types"),
+                            )
+                        } else {
+                            panic!("Something went wrong when parsing sublist types")
+                        }
+                    })
+                    .try_fold(AbstractType::ConcreteType(init), AbstractType::coerce_types)?;
+
+                if let AbstractType::ConcreteType(ct) = ty {
+                    Ok(ct)
+                } else {
+                    Err(format!(
+                        "Unable to find a concrete type for the list, found type: {:?}",
+                        ty
+                    )
+                    .into())
+                }
+            } else {
+                Err(format!(
+                    "Got {:?} as type of the list but initial value is not a list: {:?}",
+                    ty, init
+                )
+                .into())
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -475,6 +651,54 @@ mod tests {
                 "(-123)",
                 Value::new(AbstractType::NegNumber, ValueData::NegNumber(-123))
             ],
+            [
+                "([1 2])",
+                Value::new(
+                    AbstractType::ConcreteType(Type::List(Box::new(Type::Int))),
+                    ValueData::List(vec![
+                        Value::new(AbstractType::Number, ValueData::Number(1)),
+                        Value::new(AbstractType::Number, ValueData::Number(2)),
+                    ])
+                )
+            ],
+            [
+                "([-1 2])",
+                Value::new(
+                    AbstractType::ConcreteType(Type::List(Box::new(Type::Int))),
+                    ValueData::List(vec![
+                        Value::new(AbstractType::NegNumber, ValueData::NegNumber(-1)),
+                        Value::new(AbstractType::Number, ValueData::Number(2)),
+                    ])
+                )
+            ],
+            [
+                "([1 2u])",
+                Value::new(
+                    AbstractType::ConcreteType(Type::List(Box::new(Type::UInt))),
+                    ValueData::List(vec![
+                        Value::new(AbstractType::Number, ValueData::Number(1)),
+                        Value::new(Type::UInt.into(), ValueData::UInt(2)),
+                    ])
+                )
+            ],
+            [
+                "([['a' 'b' 'c'] \"bcd\"])",
+                Value::new(
+                    AbstractType::ConcreteType(Type::List(Box::new(Type::List(Box::new(
+                        Type::Char
+                    ))))),
+                    ValueData::List(vec![
+                        Value::new(
+                            Type::List(Box::new(Type::Char)).into(),
+                            ValueData::List(vec![b'a'.into(), b'b'.into(), b'c'.into()])
+                        ),
+                        Value::new(
+                            Type::List(Box::new(Type::Char)).into(),
+                            ValueData::List(vec![b'b'.into(), b'c'.into(), b'd'.into()])
+                        ),
+                    ])
+                )
+            ]
         );
 
         Ok(())

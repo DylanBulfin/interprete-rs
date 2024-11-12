@@ -193,6 +193,15 @@ macro_rules! leaf_node_pattern {
     };
 }
 
+macro_rules! list_value_helper {
+    [$($val:expr)+] => {
+        Value::new(
+            AbstractType::List,
+            ValueData::List(vec![$($val)+])
+        )
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
@@ -558,5 +567,6 @@ crate_publish_macros!(
     func_call_node_helper,
     leaf_node_pattern,
     rule_node_pattern,
+    list_value_helper,
     import,
 );
